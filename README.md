@@ -2,8 +2,6 @@
 
 A Python application that helps users find the nearest destination from multiple options using Google Maps Routes API. The app calculates travel times and distances between a starting point and multiple destinations using various transportation modes (public transit, walking, driving, or cycling).
 
-![App Screenshot](screenshot.png)
-
 ## Features
 
 - Calculate and compare travel times between a starting point and multiple destinations
