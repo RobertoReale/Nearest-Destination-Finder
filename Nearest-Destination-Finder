@@ -1,0 +1,372 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+import requests
+import json
+import datetime
+import webbrowser
+
+class RouteFinderApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Nearest Destination Finder")
+        self.root.geometry("750x650")
+        
+        # Create a style
+        style = ttk.Style()
+        style.configure("TButton", font=("Arial", 10, "bold"))
+        style.configure("TLabel", font=("Arial", 10))
+        style.configure("TLabelframe.Label", font=("Arial", 10, "bold"))
+        
+        # Main frame with padding
+        main_frame = ttk.Frame(root, padding="10")
+        main_frame.pack(fill="both", expand=True)
+        
+        # API key configuration
+        self.api_key_frame = ttk.LabelFrame(main_frame, text="Google Cloud API Key")
+        self.api_key_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.api_key_var = tk.StringVar()
+        key_frame = ttk.Frame(self.api_key_frame)
+        key_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(key_frame, text="API Key:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(key_frame, textvariable=self.api_key_var, width=50).pack(side=tk.LEFT, padx=5, fill="x", expand=True)
+        ttk.Button(key_frame, text="?", width=3, command=self.show_api_help).pack(side=tk.RIGHT, padx=5)
+        
+        # Starting point input
+        self.start_frame = ttk.LabelFrame(main_frame, text="Starting Point")
+        self.start_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.start_address_var = tk.StringVar()
+        start_input_frame = ttk.Frame(self.start_frame)
+        start_input_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(start_input_frame, text="Address:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(start_input_frame, textvariable=self.start_address_var, width=50).pack(side=tk.LEFT, padx=5, fill="x", expand=True)
+        
+        # Destinations input 
+        self.dest_frame = ttk.LabelFrame(main_frame, text="Destinations")
+        self.dest_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Create a canvas with scrollbar for destinations
+        self.canvas = tk.Canvas(self.dest_frame)
+        self.scrollbar = ttk.Scrollbar(self.dest_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        self.destinations = []
+        self.add_destination_row()
+        
+        dest_button_frame = ttk.Frame(main_frame)
+        dest_button_frame.pack(fill="x", padx=5)
+        
+        ttk.Button(dest_button_frame, text="Add Destination", command=self.add_destination_row).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(dest_button_frame, text="Remove Last", command=self.remove_last_destination).pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Transport mode selection
+        self.transport_frame = ttk.LabelFrame(main_frame, text="Transport Mode")
+        self.transport_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.transport_mode = tk.StringVar(value="TRANSIT")
+        transport_options_frame = ttk.Frame(self.transport_frame)
+        transport_options_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Radiobutton(transport_options_frame, text="Public Transit", variable=self.transport_mode, value="TRANSIT").pack(side=tk.LEFT, padx=15)
+        ttk.Radiobutton(transport_options_frame, text="Walking", variable=self.transport_mode, value="WALKING").pack(side=tk.LEFT, padx=15)
+        ttk.Radiobutton(transport_options_frame, text="Driving", variable=self.transport_mode, value="DRIVING").pack(side=tk.LEFT, padx=15)
+        ttk.Radiobutton(transport_options_frame, text="Cycling", variable=self.transport_mode, value="BICYCLING").pack(side=tk.LEFT, padx=15)
+        
+        # Action buttons
+        self.action_frame = ttk.Frame(main_frame)
+        self.action_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Button(self.action_frame, text="Find Routes", command=self.find_routes).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.action_frame, text="Clear Form", command=self.clear_form).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.action_frame, text="Exit", command=root.quit).pack(side=tk.RIGHT, padx=5)
+        
+        # Results area
+        self.results_frame = ttk.LabelFrame(main_frame, text="Results")
+        self.results_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.results_text = scrolledtext.ScrolledText(self.results_frame, width=80, height=10, font=("Arial", 10))
+        self.results_text.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Status bar
+        self.status_var = tk.StringVar(value="Ready. Please enter your API key and destinations.")
+        self.status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+    
+    def show_api_help(self):
+        help_text = (
+            "To get a Google Maps API key:\n\n"
+            "1. Go to the Google Cloud Console (https://console.cloud.google.com/)\n"
+            "2. Create a new project\n"
+            "3. Enable the following APIs:\n"
+            "   - Directions API\n"
+            "   - Geocoding API\n"
+            "   - Routes API\n"
+            "4. Create credentials for an API key\n"
+            "5. Copy and paste the API key here\n\n"
+            "Note: Google Maps Platform requires billing information, but offers a monthly $200 credit."
+        )
+        messagebox.showinfo("How to Get an API Key", help_text)
+        webbrowser.open("https://console.cloud.google.com/")
+    
+    def add_destination_row(self):
+        row = len(self.destinations)
+        dest_var = tk.StringVar()
+        
+        frame = ttk.Frame(self.scrollable_frame)
+        frame.pack(fill="x", padx=5, pady=2)
+        
+        ttk.Label(frame, text=f"Destination {row+1}:").pack(side=tk.LEFT, padx=5, pady=2)
+        entry = ttk.Entry(frame, textvariable=dest_var, width=50)
+        entry.pack(side=tk.LEFT, fill="x", expand=True, padx=5, pady=2)
+        
+        # Add button to remove this specific destination
+        remove_btn = ttk.Button(frame, text="X", width=3, 
+                                command=lambda f=frame, idx=row: self.remove_destination(f, idx))
+        remove_btn.pack(side=tk.RIGHT, padx=5, pady=2)
+        
+        self.destinations.append((dest_var, frame, entry, remove_btn))
+        
+        # Update canvas scroll region
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        
+        # Set focus to the new entry
+        entry.focus_set()
+    
+    def remove_destination(self, frame, idx):
+        if len(self.destinations) <= 1:
+            messagebox.showinfo("Info", "You must have at least one destination.")
+            return
+        
+        frame.destroy()
+        self.destinations.pop(idx)
+        
+        # Renumber the remaining destinations
+        for i, (_, dest_frame, _, _) in enumerate(self.destinations):
+            for child in dest_frame.winfo_children():
+                if isinstance(child, ttk.Label):
+                    child.configure(text=f"Destination {i+1}:")
+        
+        # Update canvas scroll region
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+    
+    def remove_last_destination(self):
+        if len(self.destinations) <= 1:
+            messagebox.showinfo("Info", "You must have at least one destination.")
+            return
+        
+        # Remove the last destination
+        _, frame, _, _ = self.destinations.pop()
+        frame.destroy()
+        
+        # Update canvas scroll region
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+    
+    def clear_form(self):
+        self.api_key_var.set("")
+        self.start_address_var.set("")
+        
+        # Clear all destination entries except the first one
+        if self.destinations:
+            self.destinations[0][0].set("")  # Clear the first entry
+            
+            # Remove all other destinations
+            for i in range(len(self.destinations)-1, 0, -1):
+                self.destinations[i][1].destroy()  # Destroy the frame
+            
+            self.destinations = [self.destinations[0]]
+        
+        self.results_text.delete(1.0, tk.END)
+        self.status_var.set("Form cleared. Ready for new input.")
+    
+    def geocode_address(self, address):
+        """Convert an address to geographic coordinates using Geocoding API"""
+        self.status_var.set(f"Geocoding address: {address}")
+        self.root.update()
+        
+        base_url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {
+            "address": address,
+            "key": self.api_key_var.get()
+        }
+        
+        try:
+            response = requests.get(base_url, params=params)
+            data = response.json()
+            
+            if data["status"] == "OK":
+                location = data["results"][0]["geometry"]["location"]
+                formatted_address = data["results"][0]["formatted_address"]
+                self.status_var.set(f"Found: {formatted_address}")
+                return location["lat"], location["lng"]
+            else:
+                error_message = data.get("error_message", data["status"])
+                messagebox.showerror("Geocoding Error", f"Cannot find address: {address}\nError: {error_message}")
+                self.status_var.set(f"Error geocoding: {address}")
+                return None
+        except Exception as e:
+            messagebox.showerror("Request Error", f"Error connecting to Google API: {str(e)}")
+            self.status_var.set("Connection error")
+            return None
+    
+    def get_route(self, origin, destination, mode):
+        """Get route information using Routes API"""
+        self.status_var.set(f"Calculating route with {mode} mode...")
+        self.root.update()
+        
+        base_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+        
+        # Get current time in UTC with 'Z' to indicate UTC
+        now = datetime.datetime.utcnow().isoformat() + "Z"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key_var.get(),
+            "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.legs.steps.transitDetails,routes.legs.steps.travelMode"
+        }
+        
+        body = {
+            "origin": {"location": {"latLng": {"latitude": origin[0], "longitude": origin[1]}}},
+            "destination": {"location": {"latLng": {"latitude": destination[0], "longitude": destination[1]}}},
+            "travelMode": mode,
+            "computeAlternativeRoutes": False,
+            "departureTime": now
+        }
+        
+        # Add routing preference only if not in TRANSIT mode
+        if mode != "TRANSIT":
+            body["routingPreference"] = "TRAFFIC_AWARE"
+        
+        try:
+            response = requests.post(base_url, headers=headers, json=body)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                error_data = response.json()
+                error_msg = "Unknown error"
+                if "error" in error_data:
+                    error_msg = error_data["error"].get("message", "Unknown error")
+                
+                messagebox.showerror("Routes API Error", f"Error in Routes API request: {error_msg}")
+                self.status_var.set(f"Routes API error: {error_msg}")
+                return None
+        except Exception as e:
+            messagebox.showerror("Request Error", f"Error connecting to Google API: {str(e)}")
+            self.status_var.set("Connection error")
+            return None
+    
+    def format_duration(self, seconds):
+        """Format seconds into hours and minutes"""
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        
+        if hours > 0:
+            return f"{hours} hours and {minutes} minutes"
+        else:
+            return f"{minutes} minutes"
+    
+    def find_routes(self):
+        # Verify API key
+        if not self.api_key_var.get():
+            messagebox.showerror("Error", "Please enter a valid API key")
+            return
+        
+        # Verify starting address
+        if not self.start_address_var.get():
+            messagebox.showerror("Error", "Please enter a starting address")
+            return
+        
+        # Verify that there is at least one destination
+        valid_destinations = [d[0].get() for d in self.destinations if d[0].get()]
+        if not valid_destinations:
+            messagebox.showerror("Error", "Please enter at least one destination")
+            return
+        
+        # Clear previous results
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, "Calculating routes...\n\n")
+        self.root.update()
+        
+        # Geocode the starting address
+        self.status_var.set("Geocoding starting address...")
+        start_location = self.geocode_address(self.start_address_var.get())
+        if not start_location:
+            return
+        
+        # Transport mode
+        mode = self.transport_mode.get()
+        mode_names = {
+            "TRANSIT": "public transit",
+            "WALKING": "walking",
+            "DRIVING": "driving", 
+            "BICYCLING": "cycling"
+        }
+        
+        # Calculate routes for each destination
+        routes_info = []
+        
+        for i, (dest_var, _, _, _) in enumerate(self.destinations):
+            if not dest_var.get():
+                continue
+            
+            self.results_text.insert(tk.END, f"Calculating route to {dest_var.get()}...\n")
+            self.root.update()
+            
+            dest_location = self.geocode_address(dest_var.get())
+            if not dest_location:
+                continue
+            
+            route_data = self.get_route(start_location, dest_location, mode)
+            if not route_data or "routes" not in route_data or not route_data["routes"]:
+                self.results_text.insert(tk.END, f"No route found to {dest_var.get()}\n\n")
+                continue
+            
+            duration_seconds = int(route_data["routes"][0]["duration"][:-1])  # Remove trailing 's'
+            distance_meters = int(route_data["routes"][0]["distanceMeters"])
+            
+            routes_info.append({
+                "destination": dest_var.get(),
+                "duration_seconds": duration_seconds,
+                "distance_meters": distance_meters,
+                "duration_formatted": self.format_duration(duration_seconds),
+                "distance_formatted": f"{distance_meters/1000:.1f} km"
+            })
+        
+        # Sort routes by duration (shortest to longest)
+        routes_info.sort(key=lambda x: x["duration_seconds"])
+        
+        # Show results
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, f"Results (sorted by travel time using {mode_names.get(mode, mode)}):\n\n")
+        
+        for i, route in enumerate(routes_info):
+            if i == 0:
+                self.results_text.insert(tk.END, "🏆 NEAREST DESTINATION 🏆\n")
+            
+            self.results_text.insert(tk.END, f"{i+1}. {route['destination']}\n")
+            self.results_text.insert(tk.END, f"   Travel time: {route['duration_formatted']}\n")
+            self.results_text.insert(tk.END, f"   Distance: {route['distance_formatted']}\n\n")
+        
+        self.status_var.set(f"Completed! Found {len(routes_info)} routes.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = RouteFinderApp(root)
+    root.mainloop()
