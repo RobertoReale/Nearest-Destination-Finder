@@ -1,8 +1,9 @@
 import googlemaps
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 def _format_distance_duration(dist_val, dur_val):
-    # dist in meters, dur in seconds
     dist_text = f"{dist_val / 1000.0:.1f} km"
     hours = dur_val // 3600
     minutes = (dur_val % 3600) // 60
@@ -12,36 +13,47 @@ def _format_distance_duration(dist_val, dur_val):
         dur_text = f"{minutes} min"
     return dist_text, dur_text
 
+
+def _geocode_single(gmaps, address):
+    try:
+        res = gmaps.geocode(address)
+        if res:
+            loc = res[0]['geometry']['location']
+            return (loc['lat'], loc['lng'])
+    except Exception:
+        pass
+    return None
+
+
 def get_distance_matrix(api_key, origin, destinations):
-    """
-    Uses Google Distance Matrix API to find the distance from origin to all destinations.
-    Returns results sorted by distance.
+    """Uses Google Distance Matrix API to find the distance from origin to all destinations.
+    Returns results sorted by distance, each with dest_coords for map pins.
     """
     if not api_key:
-        return {"status": "ERROR", "error_message": "API Key mancante per Google Maps"}
-    
+        return {"status": "ERROR", "error_message": "Missing API Key for Google Maps"}
+
     try:
         gmaps = googlemaps.Client(key=api_key)
         now = datetime.now()
-        
+
         response = gmaps.distance_matrix(
             origins=[origin],
             destinations=destinations,
             mode="driving",
             departure_time=now
         )
-        
+
         if response['status'] != 'OK':
-            return {"status": "ERROR", "error_message": f"Errore API: {response['status']}"}
-            
+            return {"status": "ERROR", "error_message": f"API Error: {response['status']}"}
+
         results = []
-        rows = response['rows'][0]
-        elements = rows['elements']
-        
+        elements = response['rows'][0]['elements']
+
         for i, element in enumerate(elements):
+            dest_name = response.get('destination_addresses', destinations)[i]
             if element['status'] == 'OK':
                 results.append({
-                    "destination": response['destination_addresses'][i] if 'destination_addresses' in response else destinations[i],
+                    "destination": dest_name,
                     "original_destination": destinations[i],
                     "distance_text": element['distance']['text'],
                     "distance_value": element['distance']['value'],
@@ -58,48 +70,53 @@ def get_distance_matrix(api_key, origin, destinations):
                     "duration_value": float('inf'),
                     "error": element['status']
                 })
-                
-        # Sort by distance
+
         results.sort(key=lambda x: x['distance_value'])
-        
-        # Geocode origin to return its coordinates for the map
-        origin_coords = None
-        geocode_res = gmaps.geocode(origin)
-        if geocode_res:
-            loc = geocode_res[0]['geometry']['location']
-            origin_coords = (loc['lat'], loc['lng'])
-            
+
+        # Geocode origin + all valid destinations in parallel for map pins
+        valid_results = [r for r in results if not r.get("error")]
+        to_geocode = [origin] + [r["destination"] for r in valid_results]
+
+        geocoded: dict = {}
+        with ThreadPoolExecutor(max_workers=min(10, len(to_geocode))) as executor:
+            future_to_addr = {executor.submit(_geocode_single, gmaps, addr): addr
+                              for addr in to_geocode}
+            for future in as_completed(future_to_addr):
+                addr = future_to_addr[future]
+                try:
+                    geocoded[addr] = future.result()
+                except Exception:
+                    geocoded[addr] = None
+
+        origin_coords = geocoded.get(origin)
+        for r in valid_results:
+            r["dest_coords"] = geocoded.get(r["destination"])
+
         return {
             "status": "OK",
             "results": results,
             "origin_coords": origin_coords
         }
-        
+
     except Exception as e:
         return {"status": "ERROR", "error_message": str(e)}
 
+
 def get_optimized_route(api_key, origin, destinations):
-    """
-    Uses Google Directions API to calculate an optimized TSP route visiting all destinations.
-    """
+    """Uses Google Directions API to calculate an optimized TSP route visiting all destinations."""
     if not api_key:
-        return {"status": "ERROR", "error_message": "API Key mancante per Google Maps"}
-        
+        return {"status": "ERROR", "error_message": "Missing API Key for Google Maps"}
+
     try:
         gmaps = googlemaps.Client(key=api_key)
         now = datetime.now()
-        
-        if len(destinations) == 0:
-            return {"status": "ERROR", "error_message": "Nessuna destinazione fornita"}
-            
-        # The last destination is considered the end of the route, unless we loop back to origin.
-        # For a standard TSP, we want to visit all. Directions API accepts origin, destination, and waypoints.
-        # If we just have destinations, we can set the last one as destination, or origin as destination to complete a loop.
-        # Let's assume an open loop where the last element is the destination.
-        
+
+        if not destinations:
+            return {"status": "ERROR", "error_message": "No destinations provided"}
+
         target = destinations[-1]
         waypoints = destinations[:-1]
-        
+
         response = gmaps.directions(
             origin=origin,
             destination=target,
@@ -108,56 +125,45 @@ def get_optimized_route(api_key, origin, destinations):
             mode="driving",
             departure_time=now
         )
-        
+
         if not response:
-            return {"status": "ERROR", "error_message": "Nessun percorso trovato"}
-            
+            return {"status": "ERROR", "error_message": "No route found"}
+
         route = response[0]
         legs = route['legs']
-        waypoint_order = route['waypoint_order']
-        
+
         results = []
         total_dist = 0
         total_dur = 0
-        
-        # In an optimized route with waypoints:
-        # Leg 0 is from origin to first optimized waypoint
-        # Leg i is from waypoint i-1 to waypoint i
-        # Last leg is from last waypoint to target
-        
+
         for i, leg in enumerate(legs):
-            dest_address = leg['end_address']
-            
-            # The original target passed to the API might not match the end_address string exactly, 
-            # but we record what the leg says.
             dist_val = leg['distance']['value']
             dur_val = leg['duration']['value']
-            
             total_dist += dist_val
             total_dur += dur_val
-            
+
             results.append({
-                "destination": dest_address,
+                "destination": leg['end_address'],
                 "distance_text": leg['distance']['text'],
                 "distance_value": dist_val,
                 "duration_text": leg['duration']['text'],
                 "duration_value": dur_val,
-                "step": i + 1
+                "step": i + 1,
+                "dest_coords": (leg['end_location']['lat'], leg['end_location']['lng'])
             })
-            
+
         polyline = route['overview_polyline']['points']
-        
-        # Origin coords from the first leg
         origin_coords = (legs[0]['start_location']['lat'], legs[0]['start_location']['lng'])
-        
+        total_dist_text, total_dur_text = _format_distance_duration(total_dist, total_dur)
+
         return {
             "status": "OK",
             "results": results,
             "polyline": polyline,
             "origin_coords": origin_coords,
-            "total_distance": _format_distance_duration(total_dist, total_dur)[0],
-            "total_duration": _format_distance_duration(total_dist, total_dur)[1]
+            "total_distance": total_dist_text,
+            "total_duration": total_dur_text
         }
-        
+
     except Exception as e:
         return {"status": "ERROR", "error_message": str(e)}
