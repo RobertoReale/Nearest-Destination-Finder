@@ -16,7 +16,7 @@ except ImportError:
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.components import DestinationList, ResultCard
-from utils import config_manager, data_importer
+from utils import config_manager, data_importer, history_manager
 from api import maps_engine, openroute_engine, nominatim_engine
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -103,6 +103,9 @@ class AppWindow(ctk.CTk):
         self.origin_entry.bind("<Return>", lambda event: self.start_calculation())
         self.departure_entry.bind("<Return>", lambda event: self.start_calculation())
         self._on_mode_change(self.mode_var.get())
+
+        self.checked_run_vars = {}
+        self.rebuild_history_list()
 
     # ── Sidebar ──────────────────────────────────────────────────────────────
 
@@ -269,22 +272,33 @@ class AppWindow(ctk.CTk):
         self._build_map_panel()
 
     def _build_left_panel(self):
-        self.left_panel = ctk.CTkFrame(self.main_frame)
+        self.left_panel = ctk.CTkTabview(self.main_frame)
         self.left_panel.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        self.left_panel.grid_columnconfigure(0, weight=1)
-        self.left_panel.grid_rowconfigure(4, weight=1)   # dest_list expands
-        self.left_panel.grid_rowconfigure(7, weight=2)   # results_area expands more
+        
+        self.tab_calculator = self.left_panel.add("Calculator")
+        self.tab_compare = self.left_panel.add("Compare & History")
+        
+        # Configure tab grids
+        self.tab_calculator.grid_columnconfigure(0, weight=1)
+        self.tab_calculator.grid_rowconfigure(4, weight=1)   # dest_list expands
+        self.tab_calculator.grid_rowconfigure(7, weight=2)   # results_area expands more
+
+        self.tab_compare.grid_columnconfigure(0, weight=1)
+        self.tab_compare.grid_rowconfigure(1, weight=1)      # history scroll expands
+        self.tab_compare.grid_rowconfigure(2, weight=1)      # comparison dashboard expands
+
+        # ── Calculator Tab Components ──────────────────────────────────────────
 
         # Origin
-        ctk.CTkLabel(self.left_panel, text="Origin:",
+        ctk.CTkLabel(self.tab_calculator, text="Origin:",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=10, pady=(10, 0), sticky="w")
-        self.origin_entry = ctk.CTkEntry(self.left_panel,
+        self.origin_entry = ctk.CTkEntry(self.tab_calculator,
                                          placeholder_text="e.g. Rome, Piazza Venezia")
         self.origin_entry.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="ew")
 
         # Destinations header: label + Add + Clear All
-        dest_header = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        dest_header = ctk.CTkFrame(self.tab_calculator, fg_color="transparent")
         dest_header.grid(row=2, column=0, sticky="ew", padx=10)
         ctk.CTkLabel(dest_header, text="Destinations:",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
@@ -294,7 +308,7 @@ class AppWindow(ctk.CTk):
                       command=lambda: self.dest_list.add_entry()).pack(side="right", padx=(0, 5))
 
         # CSV import / export bar
-        csv_bar = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        csv_bar = ctk.CTkFrame(self.tab_calculator, fg_color="transparent")
         csv_bar.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 0))
         csv_bar.grid_columnconfigure(0, weight=1)
         csv_bar.grid_columnconfigure(1, weight=1)
@@ -304,11 +318,11 @@ class AppWindow(ctk.CTk):
                       command=self.export_destinations_csv).grid(row=0, column=1, sticky="ew", padx=(3, 0))
 
         # Destination list
-        self.dest_list = DestinationList(self.left_panel, height=200, on_enter_pressed=self.start_calculation)
+        self.dest_list = DestinationList(self.tab_calculator, height=180, on_enter_pressed=self.start_calculation)
         self.dest_list.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
 
         # Calculate / Validate button bar
-        calc_bar = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        calc_bar = ctk.CTkFrame(self.tab_calculator, fg_color="transparent")
         calc_bar.grid(row=5, column=0, padx=10, pady=10, sticky="ew")
         calc_bar.grid_columnconfigure(0, weight=3)
         calc_bar.grid_columnconfigure(1, weight=2)
@@ -323,7 +337,7 @@ class AppWindow(ctk.CTk):
         self.btn_validate.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
         # Results header: label + Export Results button
-        results_header = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        results_header = ctk.CTkFrame(self.tab_calculator, fg_color="transparent")
         results_header.grid(row=6, column=0, sticky="ew", padx=10, pady=(0, 0))
         ctk.CTkLabel(results_header, text="Results:",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
@@ -333,13 +347,29 @@ class AppWindow(ctk.CTk):
         self.btn_export_results.pack(side="right")
 
         # Results area
-        self.results_area = ctk.CTkScrollableFrame(self.left_panel, height=200)
+        self.results_area = ctk.CTkScrollableFrame(self.tab_calculator, height=180)
         self.results_area.grid(row=7, column=0, padx=10, pady=(2, 0), sticky="nsew")
         self.results_area.grid_columnconfigure(0, weight=1)
 
         # Status label
-        self.status_label = ctk.CTkLabel(self.left_panel, text="", text_color="gray")
-        self.status_label.grid(row=8, column=0, padx=10, pady=(2, 10))
+        self.status_label = ctk.CTkLabel(self.tab_calculator, text="", text_color="gray")
+        self.status_label.grid(row=8, column=0, padx=10, pady=(2, 5))
+
+        # ── Compare & History Tab Components ───────────────────────────────────
+
+        history_header = ctk.CTkFrame(self.tab_compare, fg_color="transparent")
+        history_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        ctk.CTkLabel(history_header, text="Saved Routes:", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkButton(history_header, text="Clear History", width=90, fg_color="gray50", hover_color="gray60",
+                      command=self.clear_history_action).pack(side="right")
+
+        self.history_scroll = ctk.CTkScrollableFrame(self.tab_compare, height=180)
+        self.history_scroll.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.history_scroll.grid_columnconfigure(0, weight=1)
+
+        self.comparison_frame = ctk.CTkScrollableFrame(self.tab_compare, height=200)
+        self.comparison_frame.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
+        self.comparison_frame.grid_columnconfigure(0, weight=1)
 
     def _build_map_panel(self):
         self.map_panel = ctk.CTkFrame(self.main_frame)
@@ -484,7 +514,8 @@ class AppWindow(ctk.CTk):
     def start_calculation(self):
         self._reset_entry_borders()
         origin = self.origin_entry.get().strip()
-        destinations = self.dest_list.get_destinations()
+        destinations_with_settings = self.dest_list.get_destinations_with_settings()
+        destinations = [d["address"] for d in destinations_with_settings]
         provider = self.provider_var.get()
         mode = self.mode_var.get()
         transport_mode = self.transport_var.get()
@@ -534,7 +565,7 @@ class AppWindow(ctk.CTk):
 
         threading.Thread(
             target=self.run_api_request,
-            args=(provider, mode, api_key, origin, destinations, transport_mode, departure_time, round_trip),
+            args=(provider, mode, api_key, origin, destinations_with_settings, transport_mode, departure_time, round_trip),
             daemon=True,
         ).start()
 
@@ -548,9 +579,82 @@ class AppWindow(ctk.CTk):
             engine = nominatim_engine
 
         if is_tsp:
-            res = engine.get_optimized_route(api_key, origin, destinations, transport_mode, departure_time, round_trip=round_trip)
+            dest_addresses = [d["address"] for d in destinations]
+            res = engine.get_optimized_route(api_key, origin, dest_addresses, transport_mode, departure_time, round_trip=round_trip)
         else:
-            res = engine.get_distance_matrix(api_key, origin, destinations, transport_mode, departure_time)
+            has_overrides = any(d.get("transport_mode", "Default") != "Default" or d.get("departure_time", "Default") != "Default" for d in destinations)
+            
+            if not has_overrides:
+                dest_addresses = [d["address"] for d in destinations]
+                res = engine.get_distance_matrix(api_key, origin, dest_addresses, transport_mode, departure_time)
+            else:
+                overall_results = []
+                origin_coords = None
+                
+                # Geocode origin first
+                if provider == "Google Maps":
+                    origin_coords = maps_engine.geocode_address(api_key, origin)
+                elif provider == "OpenRouteService":
+                    origin_coords = openroute_engine.geocode_address(api_key, origin)
+                else:
+                    origin_coords = nominatim_engine.geocode_address(origin)
+                    
+                if not origin_coords:
+                    res = {"status": "ERROR", "error_message": f"Could not geocode origin: {origin}"}
+                    self.after(0, self.display_results, res, False)
+                    return
+                    
+                for d in destinations:
+                    addr = d["address"]
+                    dest_mode = d.get("transport_mode", "Default")
+                    if dest_mode == "Default":
+                        dest_mode = transport_mode
+                        
+                    dest_dep = d.get("departure_time", "Default")
+                    if dest_dep == "Default":
+                        dest_dep = departure_time
+                    else:
+                        if dest_dep.lower() == "now":
+                            dest_dep = datetime.now()
+                        else:
+                            try:
+                                dest_dep = datetime.strptime(dest_dep, "%Y-%m-%d %H:%M")
+                            except ValueError:
+                                dest_dep = departure_time
+                                
+                    single_res = engine.get_distance_matrix(api_key, origin, [addr], dest_mode, dest_dep)
+                    
+                    if single_res.get("status") == "ERROR":
+                        overall_results.append({
+                            "destination": addr,
+                            "original_destination": addr,
+                            "distance_text": "N/A",
+                            "distance_value": float('inf'),
+                            "duration_text": "N/A",
+                            "duration_value": float('inf'),
+                            "error": single_res.get("error_message", "Calculation failed")
+                        })
+                    else:
+                        results = single_res.get("results", [])
+                        if results:
+                            overall_results.append(results[0])
+                        else:
+                            overall_results.append({
+                                "destination": addr,
+                                "original_destination": addr,
+                                "distance_text": "N/A",
+                                "distance_value": float('inf'),
+                                "duration_text": "N/A",
+                                "duration_value": float('inf'),
+                                "error": "No results returned"
+                            })
+                            
+                overall_results.sort(key=lambda x: x.get("distance_value", float('inf')))
+                res = {
+                    "status": "OK",
+                    "results": overall_results,
+                    "origin_coords": origin_coords
+                }
 
         self.after(0, self.display_results, res, is_tsp)
 
@@ -642,6 +746,31 @@ class AppWindow(ctk.CTk):
 
         if valid_count > 0:
             self.btn_export_results.configure(state="normal")
+            
+            # Save this run to history
+            try:
+                origin = self.origin_entry.get().strip()
+                destinations = self.dest_list.get_destinations()
+                provider = self.provider_var.get()
+                mode = self.mode_var.get()
+                transport_mode = self.transport_var.get()
+                dep_str = self.departure_var.get().strip()
+                round_trip = self.round_trip_var.get()
+                
+                history_manager.add_run(
+                    origin=origin,
+                    destinations=destinations,
+                    provider=provider,
+                    mode=mode,
+                    transport_mode=transport_mode,
+                    departure_time_str=dep_str,
+                    round_trip=round_trip,
+                    response=response,
+                    is_tsp=is_tsp
+                )
+                self.rebuild_history_list()
+            except Exception as e:
+                print(f"Error saving run to history: {e}")
 
         self._fit_map_to_coords(all_coords)
 
@@ -778,3 +907,280 @@ class AppWindow(ctk.CTk):
             messagebox.showwarning("Validation Results", f"Some addresses failed validation:\n\n{msg}")
         else:
             messagebox.showinfo("Validation Results", f"All addresses are valid!\n\n{msg}")
+
+    # ── History & Comparison ──────────────────────────────────────────────────
+
+    def rebuild_history_list(self):
+        # Clear existing widgets in self.history_scroll
+        for w in self.history_scroll.winfo_children():
+            w.destroy()
+            
+        history = history_manager.load_history()
+        
+        # Clean up checked_run_vars for runs that no longer exist
+        valid_ids = {item.get("id") for item in history}
+        self.checked_run_vars = {run_id: var for run_id, var in self.checked_run_vars.items() if run_id in valid_ids}
+        
+        if not history:
+            lbl = ctk.CTkLabel(self.history_scroll, text="No saved routes in history.", text_color="gray")
+            lbl.pack(pady=20)
+            return
+            
+        for run in history:
+            run_id = run["id"]
+            
+            # Ensure we have a BooleanVar for this run_id
+            if run_id not in self.checked_run_vars:
+                self.checked_run_vars[run_id] = ctk.BooleanVar(value=False)
+                
+            var = self.checked_run_vars[run_id]
+            
+            run_frame = ctk.CTkFrame(self.history_scroll)
+            run_frame.pack(fill="x", pady=2, padx=2)
+            
+            # Checkbox
+            cb = ctk.CTkCheckBox(run_frame, text="", variable=var, width=24, command=self.on_comparison_toggled)
+            cb.pack(side="left", padx=(5, 0))
+            
+            # Info block
+            info_frame = ctk.CTkFrame(run_frame, fg_color="transparent")
+            info_frame.pack(side="left", fill="x", expand=True, padx=5)
+            
+            name_lbl = ctk.CTkLabel(info_frame, text=run["name"], font=ctk.CTkFont(weight="bold"), anchor="w", justify="left")
+            name_lbl.pack(fill="x", anchor="w")
+            
+            # Subtitle with details
+            mode_tag = "TSP" if run["is_tsp"] else "Nearest"
+            details = f"{run['timestamp']} | {mode_tag} - {run['transport_mode']} | {len(run['destinations'])} stops"
+            details_lbl = ctk.CTkLabel(info_frame, text=details, font=ctk.CTkFont(size=11), text_color="gray", anchor="w", justify="left")
+            details_lbl.pack(fill="x", anchor="w")
+            
+            # Actions frame
+            actions_frame = ctk.CTkFrame(run_frame, fg_color="transparent")
+            actions_frame.pack(side="right", padx=5)
+            
+            # Load button
+            load_btn = ctk.CTkButton(actions_frame, text="Load", width=45, height=24,
+                                     command=lambda r=run: self.load_run_inputs(r))
+            load_btn.pack(side="left", padx=2)
+            
+            # Rename button
+            rename_btn = ctk.CTkButton(actions_frame, text="✏", width=24, height=24,
+                                       command=lambda r=run: self.rename_run_prompt(r))
+            rename_btn.pack(side="left", padx=2)
+            
+            # Delete button
+            delete_btn = ctk.CTkButton(actions_frame, text="✕", width=24, height=24, fg_color="gray50", hover_color="gray60",
+                                       command=lambda r=run: self.delete_run_action(r))
+            delete_btn.pack(side="left", padx=2)
+
+    def load_run_inputs(self, run):
+        # Switch back to Calculator tab
+        self.left_panel.set("Calculator")
+        
+        # Populate Origin
+        self.origin_entry.delete(0, "end")
+        self.origin_entry.insert(0, run.get("origin", ""))
+        
+        # Populate Destinations
+        destinations = run.get("destinations", [])
+        self.dest_list.load_from_list(destinations)
+        
+        # Populate Config Settings
+        self.provider_var.set(run.get("provider", "Google Maps"))
+        self.mode_var.set(run.get("mode", "Find Nearest"))
+        self.transport_var.set(run.get("transport_mode", "Driving"))
+        self.departure_var.set(run.get("departure_time", "now"))
+        self.round_trip_var.set(run.get("round_trip", False))
+        
+        # Trigger change handlers to update UI visibility
+        self._on_provider_change(run.get("provider", "Google Maps"))
+        self._on_mode_change(run.get("mode", "Find Nearest"))
+        
+        # Notify user
+        messagebox.showinfo("Route Loaded", f"Route inputs loaded into Calculator:\n\nOrigin: {run.get('origin')}\nStops: {len(destinations)}")
+
+    def rename_run_prompt(self, run):
+        dialog = ctk.CTkInputDialog(text="Enter new name for this route run:", title="Rename Route")
+        new_name = dialog.get_input()
+        if new_name and new_name.strip():
+            history_manager.rename_run(run["id"], new_name.strip())
+            self.rebuild_history_list()
+            # If it's checked, update comparison dashboard
+            checked_ids = [run_id for run_id, var in self.checked_run_vars.items() if var.get()]
+            if run["id"] in checked_ids:
+                self.on_comparison_toggled()
+
+    def delete_run_action(self, run):
+        if messagebox.askyesno("Delete Route", f"Are you sure you want to delete '{run['name']}' from history?"):
+            history_manager.delete_run(run["id"])
+            self.rebuild_history_list()
+            self.on_comparison_toggled()
+
+    def clear_history_action(self):
+        if messagebox.askyesno("Clear History", "Are you sure you want to delete all saved routes from history?"):
+            history_manager.clear_history()
+            self.rebuild_history_list()
+            self.on_comparison_toggled()
+
+    def on_comparison_toggled(self):
+        # Find which runs are checked
+        checked_ids = []
+        for run_id, var in self.checked_run_vars.items():
+            if var.get():
+                checked_ids.append(run_id)
+                
+        # Load history to get run data
+        history = history_manager.load_history()
+        checked_runs = [item for item in history if item.get("id") in checked_ids]
+        
+        # Update Dashboard
+        self.update_comparison_dashboard(checked_runs)
+        
+        # Redraw map
+        self.clear_map()
+        
+        if not checked_runs:
+            return
+            
+        COLORS = ["#3498db", "#2ecc71", "#e74c3c", "#9b59b6", "#f1c40f", "#1abc9c"]
+        all_coords = []
+        drawn_origins = set()
+        
+        for idx, run in enumerate(checked_runs):
+            color = COLORS[idx % len(COLORS)]
+            
+            origin_coords = run.get("origin_coords")
+            if origin_coords:
+                all_coords.append(origin_coords)
+                origin_tuple = tuple(origin_coords)
+                if origin_tuple not in drawn_origins:
+                    p = self.map_widget.set_marker(
+                        origin_coords[0], origin_coords[1],
+                        text="Origin",
+                        icon=self.get_marker_icon("S", bg_color="#2e7d32")
+                    )
+                    self.current_pins.append(p)
+                    drawn_origins.add(origin_tuple)
+            
+            # Draw path
+            if run.get("is_tsp"):
+                path = run.get("polyline_path")
+                if path and len(path) >= 2:
+                    self.map_widget.set_path(path, color=color, width=5)
+            else:
+                # Draw lines from origin to destinations
+                if origin_coords:
+                    for res in run.get("results", []):
+                        dest_c = res.get("dest_coords")
+                        if dest_c:
+                            self.map_widget.set_path([origin_coords, dest_c], color=color, width=3)
+                            
+            # Add markers for destinations in matched color
+            for res in run.get("results", []):
+                dest_coords = res.get("dest_coords")
+                if dest_coords:
+                    all_coords.append(dest_coords)
+                    # Check if it overlaps with origin
+                    if origin_coords and (abs(dest_coords[0] - origin_coords[0]) < 1e-7 and abs(dest_coords[1] - origin_coords[1]) < 1e-7):
+                        continue
+                    
+                    label_text = str(res.get("step")) if run.get("is_tsp") else "D"
+                    p = self.map_widget.set_marker(
+                        dest_coords[0], dest_coords[1],
+                        text=f"{run['name'][:10]} - {res['destination'][:20]}",
+                        icon=self.get_marker_icon(label_text, bg_color=color)
+                    )
+                    self.current_pins.append(p)
+                    
+        # Fit map to show all coordinates
+        self._fit_map_to_coords(all_coords)
+
+    def update_comparison_dashboard(self, checked_runs):
+        # Destroy existing widgets in self.comparison_frame
+        for w in self.comparison_frame.winfo_children():
+            w.destroy()
+            
+        if len(checked_runs) < 2:
+            lbl = ctk.CTkLabel(self.comparison_frame, text="Select 2 or more routes in the list above to compare them.", text_color="gray")
+            lbl.pack(pady=20)
+            return
+
+        # Title
+        ctk.CTkLabel(self.comparison_frame, text="Route Comparison", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(10, 5), anchor="w")
+        
+        # Grid/Table Frame
+        table_frame = ctk.CTkFrame(self.comparison_frame)
+        table_frame.pack(fill="x", pady=5)
+        
+        # Columns: Color/Name, Mode/Provider, Distance, Duration
+        headers = ["Route", "Transport / Provider", "Distance", "Duration"]
+        for col, text in enumerate(headers):
+            lbl = ctk.CTkLabel(table_frame, text=text, font=ctk.CTkFont(weight="bold"), anchor="w")
+            lbl.grid(row=0, column=col, padx=10, pady=5, sticky="w")
+            
+        # Define color representation mapping
+        COLORS = ["#3498db", "#2ecc71", "#e74c3c", "#9b59b6", "#f1c40f", "#1abc9c"]
+        
+        # Populate rows
+        for row, run in enumerate(checked_runs, start=1):
+            color = COLORS[(row - 1) % len(COLORS)]
+            
+            # Colored circle indicator + Name
+            name_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
+            name_frame.grid(row=row, column=0, padx=10, pady=5, sticky="w")
+            
+            color_indicator = ctk.CTkLabel(name_frame, text="■", text_color=color, font=ctk.CTkFont(size=16))
+            color_indicator.pack(side="left")
+            
+            name_lbl = ctk.CTkLabel(name_frame, text=run["name"][:35], anchor="w")
+            name_lbl.pack(side="left", padx=5)
+            
+            # Mode / Provider
+            details_text = f"{run['transport_mode']} ({run['provider']})"
+            details_lbl = ctk.CTkLabel(table_frame, text=details_text, anchor="w")
+            details_lbl.grid(row=row, column=1, padx=10, pady=5, sticky="w")
+            
+            # Distance
+            dist_lbl = ctk.CTkLabel(table_frame, text=run["total_distance"], anchor="w")
+            dist_lbl.grid(row=row, column=2, padx=10, pady=5, sticky="w")
+            
+            # Duration
+            dur_lbl = ctk.CTkLabel(table_frame, text=run["total_duration"], anchor="w")
+            dur_lbl.grid(row=row, column=3, padx=10, pady=5, sticky="w")
+            
+        # Calculate stats for highlights
+        run_stats = []
+        for row, run in enumerate(checked_runs):
+            color = COLORS[row % len(COLORS)]
+            
+            # Sum values to ensure correct comparison
+            total_d = sum(r.get("distance_value", 0) for r in run.get("results", []) if r.get("distance_value") is not None and r.get("distance_value") != float('inf'))
+            total_t = sum(r.get("duration_value", 0) for r in run.get("results", []) if r.get("duration_value") is not None and r.get("duration_value") != float('inf'))
+            
+            run_stats.append({
+                "run": run,
+                "distance": total_d,
+                "duration": total_t,
+                "color": color
+            })
+            
+        # Find shortest (min distance) and fastest (min duration)
+        shortest = min(run_stats, key=lambda x: x["distance"])
+        fastest = min(run_stats, key=lambda x: x["duration"])
+        
+        # Highlights block
+        highlights_frame = ctk.CTkFrame(self.comparison_frame, border_width=1, border_color=("gray70", "gray30"))
+        highlights_frame.pack(fill="x", pady=(10, 5))
+        
+        ctk.CTkLabel(highlights_frame, text="Highlights", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=10, pady=(5, 2))
+        
+        # Shortest
+        s_text = f"🏆 Shortest Route: {shortest['run']['name']} ({shortest['run']['total_distance']})"
+        s_lbl = ctk.CTkLabel(highlights_frame, text=s_text, text_color=shortest["color"], font=ctk.CTkFont(weight="bold"), anchor="w")
+        s_lbl.pack(fill="x", padx=10, pady=2)
+        
+        # Fastest
+        f_text = f"⚡ Fastest Route: {fastest['run']['name']} ({fastest['run']['total_duration']})"
+        f_lbl = ctk.CTkLabel(highlights_frame, text=f_text, text_color=fastest["color"], font=ctk.CTkFont(weight="bold"), anchor="w")
+        f_lbl.pack(fill="x", padx=10, pady=(2, 5))

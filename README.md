@@ -11,20 +11,25 @@ A Python desktop app for comparing travel distances and optimizing multi-stop ro
 
 - **Find Nearest** — compare distances from one origin to many destinations, sorted closest-first
 - **Traveling Salesman (TSP)** — find the optimal visit order to minimize total travel distance
-- **Interactive map** — origin pin, destination pins, and the full route polyline drawn on a live map
+- **Round-trip mode** — TSP can optionally return to the origin
+- **Interactive map** — origin pin, numbered destination pins, and the full route polyline drawn on a live map
 - **Auto-fit map** — after calculation, the map automatically centers and zooms to fit all markers
-- **Three providers** — Google Maps (precise road distances + times), OpenRouteService (free API), or **Free (Nominatim)** (no API key needed — straight-line haversine distances)
-- **Persistent Local Caching** — Geocoding lookups and map tiles are cached in a local SQLite database for instant reloading and zero extra API calls.
+- **Three providers** — Google Maps (precise road distances + times), OpenRouteService (free API), or **Free (Nominatim)** (no API key needed — straight-line haversine distances, labeled as such)
+- **Compare & History tab** — every successful calculation is saved automatically; select two or more routes to compare them side-by-side on the map and in a summary table (shortest / fastest highlights)
+- **Load, rename, delete** saved routes from the history list
+- **Per-destination overrides** — click the ⚙ gear icon on any destination row to set a custom transport mode or departure time for that stop
+- **Address Validation** — validate origin and all destinations against the selected provider before calculating, with colour-coded entry borders
+- **Persistent geocoding cache** — geocoding lookups are stored in a local SQLite database (`.geo_cache.db`) so repeat queries make zero API calls
 - **Transport modes** — Driving, Walking, Bicycling, Transit (provider-dependent)
 - **Departure time** — specify a future departure for traffic-aware routing (Google Maps)
 - **CSV import** — bulk-load destination addresses from a spreadsheet
 - **CSV export** — export destination lists or full results (with distances and times) to CSV
 - **Clear All** — one-click reset of the destination list
 - **Persistent settings** — API keys, provider, mode, transport mode, theme, and map style are saved locally in `config.json`
-- **Show / hide API keys** — toggle visibility of each key field with the eye button
+- **Show / hide API keys** — toggle visibility of each key field with the 👁 button
 - **Dark / Light / System theme** — live preview when switching
 - **Map styles** — Voyager, Light, Dark, and Standard (OSM)
-- **Tile cache** — visited map tiles are stored in a local SQLite database for instant repeat loads
+- **Tile cache** — visited map tiles are stored in a local SQLite database (`.map_cache.db`) for instant repeat loads
 
 ---
 
@@ -81,8 +86,10 @@ python main.py
 2. Select a **Mode** and **Transport Mode**
 3. Type your **Origin** address
 4. Add **Destinations** one by one, or click **Import CSV** to load from a file
-5. Click **Calculate Routes**
-6. Results appear in the list and on the map; click **Export CSV** next to Results to save them
+5. (Optional) Click **⚙** on any destination row to override its transport mode or departure time
+6. (Optional) Click **Validate Addresses** to check all entries before calculating
+7. Click **Calculate Routes**
+8. Results appear in the list and on the map; click **Export CSV** next to Results to save them
 
 ### Modes explained
 
@@ -90,6 +97,14 @@ python main.py
 |------|-------------|
 | **Find Nearest** | Calls the Distance Matrix API. Returns all destinations sorted by distance from origin. |
 | **Traveling Salesman (TSP)** | Calls the Directions / Optimization API with waypoint optimization. Returns the shortest overall route visiting all destinations. |
+
+### Compare & History tab
+
+Every successful calculation is saved automatically. Switch to the **Compare & History** tab to:
+
+- **Load** a saved route back into the Calculator
+- **Rename** or **Delete** individual runs
+- **Select two or more runs** using the checkboxes to compare them: a colour-coded summary table appears below with shortest/fastest highlights, and all selected routes are drawn simultaneously on the map
 
 ---
 
@@ -125,7 +140,9 @@ address
 Nearest-Destination-Finder/
 ├── main.py                   # Entry point
 ├── requirements.txt
+├── requirements-dev.txt      # Dev/test dependencies (pytest, responses, …)
 ├── config.json               # Local settings — auto-created, not committed
+├── route_history.json        # Saved route history — auto-created, not committed
 ├── gui/
 │   ├── app_window.py         # Main window, layout, calculation flow
 │   └── components.py         # DestinationList and ResultCard widgets
@@ -133,22 +150,41 @@ Nearest-Destination-Finder/
 │   ├── maps_engine.py        # Google Maps (Distance Matrix + Directions)
 │   ├── openroute_engine.py   # OpenRouteService (Distance Matrix + VROOM Optimization)
 │   └── nominatim_engine.py   # Free mode: OSM geocoding + haversine distances
-└── utils/
-    ├── config_manager.py     # Load / save config.json
-    ├── data_importer.py      # CSV import and export (stdlib csv, no pandas)
-    └── logger.py             # Rotating file + console logger
+├── utils/
+│   ├── config_manager.py     # Load / save config.json
+│   ├── data_importer.py      # CSV import and export (stdlib csv, no pandas)
+│   ├── geo_cache.py          # Persistent SQLite geocoding cache (.geo_cache.db)
+│   ├── history_manager.py    # Save / load / rename / delete route history
+│   └── logger.py             # Rotating file (5 MB × 3) + console logger
+└── tests/
+    ├── test_maps_engine.py
+    ├── test_openroute_engine.py
+    ├── test_nominatim_engine.py
+    ├── test_history_manager.py
+    └── test_components.py
 ```
+
+---
+
+## Running Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+All 22 unit tests should pass. Tests use a dedicated `.geo_cache_test.db` so the real geocoding cache is never touched.
 
 ---
 
 ## Notes
 
-- `config.json` is listed in `.gitignore` because it stores your API keys — never commit it
-- Map tiles are cached in `.map_cache.db` and geocoding results in `.geo_cache.db` — both are auto-generated and excluded from git.
-- `app.log` is written to the project root and excluded from git
-- Google Maps and ORS geocoding uses `ThreadPoolExecutor` for parallel lookups; Nominatim is sequential (1 req/sec rate limit)
+- `config.json` and `route_history.json` are listed in `.gitignore` because they store API keys and local data — never commit them
+- Map tiles are cached in `.map_cache.db` and geocoding results in `.geo_cache.db` — both are auto-generated and excluded from git
+- `app.log` is written to the project root (rotating, max 5 MB × 3 backups) and excluded from git
+- Google Maps and ORS geocoding uses `ThreadPoolExecutor` for parallel lookups; Nominatim is sequential (1 req/sec rate limit enforced by a module-level timer)
 - GUI updates from background threads use `self.after(0, callback)` for thread safety
-- All geocoders use a module-level dict cache; failed lookups are never cached, allowing retries
+- Failed geocoding lookups are never cached, allowing automatic retries on the next calculation
 
 ---
 
