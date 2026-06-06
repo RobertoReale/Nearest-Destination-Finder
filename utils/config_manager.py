@@ -7,8 +7,9 @@ CONFIG_FILE = os.path.join(_ROOT, "config.json")
 DEFAULT_CONFIG = {
     "google_api_key": "",
     "openrouteservice_api_key": "",
-    "default_provider": "google",
-    "theme": "Dark"
+    "default_provider": "Google Maps",
+    "theme": "Dark",
+    "map_style": "Voyager",
 }
 
 def load_config():

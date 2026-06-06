@@ -1,15 +1,29 @@
 import customtkinter as ctk
 import tkintermapview
 import threading
+import os
 from tkinter import filedialog, messagebox
 import sys
-import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.components import DestinationList, ResultCard
 from utils import config_manager, data_importer
 from api import maps_engine, openroute_engine
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MAP_CACHE = os.path.join(_ROOT, ".map_cache.db")
+
+_TILE_SERVERS = {
+    "Voyager":        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+    "Light":          "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+    "Dark":           "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    "Standard (OSM)": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+}
+
+_PROVIDER_NAMES = ["Google Maps", "OpenRouteService"]
+# Migrate old config values that used internal identifiers
+_PROVIDER_LEGACY = {"google": "Google Maps", "openrouteservice": "OpenRouteService"}
 
 
 class AppWindow(ctk.CTk):
@@ -32,68 +46,101 @@ class AppWindow(ctk.CTk):
 
         self.google_key_entry.insert(0, self.config.get("google_api_key", ""))
         self.ors_key_entry.insert(0, self.config.get("openrouteservice_api_key", ""))
-        self.provider_var.set(self.config.get("default_provider", "google"))
+        raw = self.config.get("default_provider", "google")
+        self.provider_var.set(_PROVIDER_LEGACY.get(raw, raw))
 
         self.current_pins = []
         self.current_polyline = None
 
+    # ── Sidebar ──────────────────────────────────────────────────────────────
+
     def _build_sidebar(self):
         self.sidebar = ctk.CTkFrame(self, width=300, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(11, weight=1)  # spacer before save button
+        self.sidebar.grid_columnconfigure(0, weight=1)  # allows widgets to fill width
+        self.sidebar.grid_rowconfigure(13, weight=1)    # spacer pushes Save to bottom
 
         ctk.CTkLabel(self.sidebar, text="Settings",
                      font=ctk.CTkFont(size=20, weight="bold")).grid(
             row=0, column=0, padx=20, pady=(20, 10))
 
         # Provider
-        self.provider_var = ctk.StringVar(value="google")
+        self.provider_var = ctk.StringVar(value="Google Maps")
         ctk.CTkLabel(self.sidebar, text="Provider:").grid(
             row=1, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.provider_menu = ctk.CTkOptionMenu(
-            self.sidebar, values=["google", "openrouteservice"], variable=self.provider_var)
-        self.provider_menu.grid(row=2, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ctk.CTkOptionMenu(
+            self.sidebar, values=_PROVIDER_NAMES, variable=self.provider_var
+        ).grid(row=2, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        # API Keys
+        # API keys with show/hide toggle
         ctk.CTkLabel(self.sidebar, text="Google API Key:").grid(
             row=3, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.google_key_entry = ctk.CTkEntry(self.sidebar, show="*")
-        self.google_key_entry.grid(row=4, column=0, padx=20, pady=(5, 10), sticky="ew")
+        self.google_key_entry = self._key_row(self.sidebar, row=4)
 
         ctk.CTkLabel(self.sidebar, text="OpenRouteService API Key:").grid(
             row=5, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.ors_key_entry = ctk.CTkEntry(self.sidebar, show="*")
-        self.ors_key_entry.grid(row=6, column=0, padx=20, pady=(5, 10), sticky="ew")
+        self.ors_key_entry = self._key_row(self.sidebar, row=6)
 
         # Mode
         self.mode_var = ctk.StringVar(value="Find Nearest")
         ctk.CTkLabel(self.sidebar, text="Mode:").grid(
             row=7, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.mode_menu = ctk.CTkOptionMenu(
+        ctk.CTkOptionMenu(
             self.sidebar,
             values=["Find Nearest", "Traveling Salesman (TSP)"],
-            variable=self.mode_var)
-        self.mode_menu.grid(row=8, column=0, padx=20, pady=(5, 10), sticky="ew")
+            variable=self.mode_var,
+        ).grid(row=8, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Theme
         self.theme_var = ctk.StringVar(value=self.config.get("theme", "Dark"))
         ctk.CTkLabel(self.sidebar, text="Theme:").grid(
             row=9, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.theme_menu = ctk.CTkOptionMenu(
+        ctk.CTkOptionMenu(
             self.sidebar,
             values=["Dark", "Light", "System"],
             variable=self.theme_var,
-            command=lambda v: ctk.set_appearance_mode(v))
-        self.theme_menu.grid(row=10, column=0, padx=20, pady=(5, 10), sticky="ew")
+            command=lambda v: ctk.set_appearance_mode(v),
+        ).grid(row=10, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        # Save button (below spacer row 11)
-        ctk.CTkButton(self.sidebar, text="Save Settings", command=self.save_settings).grid(
-            row=12, column=0, padx=20, pady=10, sticky="ew")
+        # Map style
+        self.map_style_var = ctk.StringVar(value=self.config.get("map_style", "Voyager"))
+        ctk.CTkLabel(self.sidebar, text="Map Style:").grid(
+            row=11, column=0, padx=20, pady=(10, 0), sticky="w")
+        ctk.CTkOptionMenu(
+            self.sidebar,
+            values=list(_TILE_SERVERS.keys()),
+            variable=self.map_style_var,
+            command=self._apply_map_style,
+        ).grid(row=12, column=0, padx=20, pady=(5, 10), sticky="ew")
+
+        ctk.CTkButton(self.sidebar, text="Save Settings",
+                      command=self.save_settings).grid(
+            row=14, column=0, padx=20, pady=(0, 20), sticky="ew")
+
+    def _key_row(self, parent: ctk.CTkFrame, row: int) -> ctk.CTkEntry:
+        """Returns a password CTkEntry with an eye-toggle button beside it."""
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=row, column=0, padx=20, pady=(5, 10), sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
+
+        entry = ctk.CTkEntry(frame, show="*")
+        entry.grid(row=0, column=0, sticky="ew")
+
+        ctk.CTkButton(frame, text="👁", width=32,
+                      command=lambda e=entry: e.configure(
+                          show="" if e.cget("show") == "*" else "*")
+                      ).grid(row=0, column=1, padx=(5, 0))
+        return entry
+
+    def _apply_map_style(self, style: str) -> None:
+        url = _TILE_SERVERS.get(style, _TILE_SERVERS["Voyager"])
+        self.map_widget.set_tile_server(url, max_zoom=19)
+
+    # ── Main area ─────────────────────────────────────────────────────────────
 
     def _build_main_area(self):
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-
         self.main_frame.grid_columnconfigure(0, weight=1)
         self.main_frame.grid_columnconfigure(1, weight=2)
         self.main_frame.grid_rowconfigure(0, weight=1)
@@ -105,10 +152,9 @@ class AppWindow(ctk.CTk):
         self.left_panel = ctk.CTkFrame(self.main_frame)
         self.left_panel.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.left_panel.grid_columnconfigure(0, weight=1)
-        self.left_panel.grid_rowconfigure(3, weight=1)   # destination list
-        self.left_panel.grid_rowconfigure(5, weight=2)   # results area
+        self.left_panel.grid_rowconfigure(3, weight=1)
+        self.left_panel.grid_rowconfigure(5, weight=2)
 
-        # Origin
         ctk.CTkLabel(self.left_panel, text="Origin:",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=10, pady=(10, 0), sticky="w")
@@ -116,15 +162,13 @@ class AppWindow(ctk.CTk):
                                          placeholder_text="e.g. Rome, Piazza Venezia")
         self.origin_entry.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="ew")
 
-        # Destinations header
-        dest_header_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
-        dest_header_frame.grid(row=2, column=0, sticky="ew", padx=10)
-
-        ctk.CTkLabel(dest_header_frame, text="Destinations:",
+        dest_header = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        dest_header.grid(row=2, column=0, sticky="ew", padx=10)
+        ctk.CTkLabel(dest_header, text="Destinations:",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
-        ctk.CTkButton(dest_header_frame, text="Import CSV", width=100,
+        ctk.CTkButton(dest_header, text="Import CSV", width=100,
                       command=self.import_csv).pack(side="right")
-        ctk.CTkButton(dest_header_frame, text="+ Add", width=80,
+        ctk.CTkButton(dest_header, text="+ Add", width=80,
                       command=lambda: self.dest_list.add_entry()).pack(side="right", padx=5)
 
         self.dest_list = DestinationList(self.left_panel, height=200)
@@ -145,16 +189,22 @@ class AppWindow(ctk.CTk):
         self.map_panel = ctk.CTkFrame(self.main_frame)
         self.map_panel.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
-        self.map_widget = tkintermapview.TkinterMapView(self.map_panel, corner_radius=0)
+        # database_path enables persistent SQLite tile cache — tiles load from disk after first visit
+        self.map_widget = tkintermapview.TkinterMapView(
+            self.map_panel, corner_radius=0, database_path=_MAP_CACHE)
         self.map_widget.pack(fill="both", expand=True)
         self.map_widget.set_position(41.8719, 12.5674)
         self.map_widget.set_zoom(6)
+        self._apply_map_style(self.map_style_var.get())
+
+    # ── Settings & import ─────────────────────────────────────────────────────
 
     def save_settings(self):
         self.config["google_api_key"] = self.google_key_entry.get().strip()
         self.config["openrouteservice_api_key"] = self.ors_key_entry.get().strip()
         self.config["default_provider"] = self.provider_var.get()
         self.config["theme"] = self.theme_var.get()
+        self.config["map_style"] = self.map_style_var.get()
         if config_manager.save_config(self.config):
             messagebox.showinfo("Settings Saved", "Settings saved successfully.")
         else:
@@ -162,29 +212,28 @@ class AppWindow(ctk.CTk):
 
     def import_csv(self):
         file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-        if file_path:
-            addresses = data_importer.import_addresses_from_csv(file_path)
-            if addresses:
-                self.dest_list.load_from_list(addresses)
-                messagebox.showinfo("CSV Import", f"Imported {len(addresses)} addresses.")
-            else:
-                messagebox.showwarning("Warning", "No addresses found or invalid file format.")
+        if not file_path:
+            return
+        addresses = data_importer.import_addresses_from_csv(file_path)
+        if addresses:
+            self.dest_list.load_from_list(addresses)
+            messagebox.showinfo("CSV Import", f"Imported {len(addresses)} address(es).")
+        else:
+            messagebox.showwarning("Warning", "No addresses found or invalid file format.")
+
+    # ── Map & results helpers ─────────────────────────────────────────────────
 
     def clear_results(self):
         for widget in self.results_area.winfo_children():
             widget.destroy()
 
     def clear_map(self):
-        for pin in self.current_pins:
-            pin.delete()
         self.current_pins.clear()
-
-        if self.current_polyline:
-            self.current_polyline.delete()
-            self.current_polyline = None
-
+        self.current_polyline = None
         self.map_widget.delete_all_marker()
         self.map_widget.delete_all_path()
+
+    # ── Calculation flow ──────────────────────────────────────────────────────
 
     def start_calculation(self):
         origin = self.origin_entry.get().strip()
@@ -195,16 +244,15 @@ class AppWindow(ctk.CTk):
         if not origin:
             messagebox.showerror("Error", "Please enter an origin address.")
             return
-
         if not destinations:
             messagebox.showerror("Error", "Please enter at least one destination.")
             return
 
         api_key = (self.google_key_entry.get().strip()
-                   if provider == "google"
+                   if provider == "Google Maps"
                    else self.ors_key_entry.get().strip())
         if not api_key:
-            messagebox.showerror("Error", f"Please enter an API Key for {provider}.")
+            messagebox.showerror("Error", f"Please enter an API key for {provider}.")
             return
 
         self.btn_calculate.configure(state="disabled", text="Calculating...")
@@ -218,12 +266,12 @@ class AppWindow(ctk.CTk):
         threading.Thread(
             target=self.run_api_request,
             args=(provider, mode, api_key, origin, destinations),
-            daemon=True
+            daemon=True,
         ).start()
 
     def run_api_request(self, provider, mode, api_key, origin, destinations):
         is_tsp = mode == "Traveling Salesman (TSP)"
-        engine = maps_engine if provider == "google" else openroute_engine
+        engine = maps_engine if provider == "Google Maps" else openroute_engine
 
         if is_tsp:
             res = engine.get_optimized_route(api_key, origin, destinations)
@@ -253,7 +301,6 @@ class AppWindow(ctk.CTk):
         if is_tsp:
             tot_dist = response.get("total_distance", "N/A")
             tot_dur = response.get("total_duration", "N/A")
-
             ctk.CTkLabel(self.results_area,
                          text=f"Total trip: {tot_dist} — {tot_dur}",
                          font=ctk.CTkFont(weight="bold")).pack(pady=5)
@@ -275,7 +322,6 @@ class AppWindow(ctk.CTk):
                     polyline_path = pl.decode(response["polyline"])
                 except ImportError:
                     pass
-
             if polyline_path:
                 self.current_polyline = self.map_widget.set_path(polyline_path)
 
@@ -290,9 +336,8 @@ class AppWindow(ctk.CTk):
                         fill="x", pady=2, padx=2)
                     dest_coords = res.get("dest_coords")
                     if dest_coords:
-                        label = res["destination"][:30]
                         p = self.map_widget.set_marker(dest_coords[0], dest_coords[1],
-                                                       text=label)
+                                                       text=res["destination"][:30])
                         self.current_pins.append(p)
 
         valid_count = sum(1 for r in results if not r.get("error"))

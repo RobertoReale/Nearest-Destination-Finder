@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# App-specific — contains API keys, do not commit
+config.json
+# Tile cache — can be large, regenerated automatically
+.map_cache.db
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,6 +1,6 @@
-customtkinter
-tkintermapview
-googlemaps
-openrouteservice
-pandas
-polyline
+customtkinter>=5.2.0
+tkintermapview>=1.15     # database_path tile-cache parameter requires >= 1.15
+googlemaps>=4.10.0
+openrouteservice>=2.3.3
+pandas>=1.5.0
+polyline>=2.0.0

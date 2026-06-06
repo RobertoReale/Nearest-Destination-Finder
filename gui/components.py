@@ -16,9 +16,9 @@ class DestinationList(ctk.CTkScrollableFrame):
         if default_text:
             entry.insert(0, default_text)
 
-        remove_btn = ctk.CTkButton(row_frame, text="✕", width=30,
-                                   command=lambda f=row_frame, e=entry: self.remove_entry(f, e))
-        remove_btn.pack(side="right")
+        ctk.CTkButton(row_frame, text="✕", width=30,
+                      command=lambda f=row_frame, e=entry: self.remove_entry(f, e)
+                      ).pack(side="right")
 
         self.entries.append(entry)
 
@@ -40,30 +40,33 @@ class DestinationList(ctk.CTkScrollableFrame):
         for widget in self.winfo_children():
             widget.destroy()
         self.entries.clear()
-
-        if dest_list:
-            for dest in dest_list:
-                self.add_entry(dest)
-        else:
+        for dest in dest_list:
+            self.add_entry(dest)
+        if not dest_list:
             self.add_entry()
 
 
 class ResultCard(ctk.CTkFrame):
-    def __init__(self, master, destination, distance, duration, step=None, is_error=False, **kwargs):
+    def __init__(self, master, destination, distance, duration,
+                 step=None, is_error=False, **kwargs):
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("border_color", ("gray70", "gray30"))
         super().__init__(master, **kwargs)
 
         header_text = f"Stop {step}: {destination}" if step is not None else destination
-
-        header_lbl = ctk.CTkLabel(self, text=header_text, font=ctk.CTkFont(size=14, weight="bold"),
-                                  anchor="w", justify="left", wraplength=280)
-        header_lbl.pack(fill="x", padx=10, pady=(5, 0))
+        ctk.CTkLabel(self, text=header_text,
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     anchor="w", justify="left", wraplength=280).pack(
+            fill="x", padx=10, pady=(8, 2))
 
         if is_error:
-            ctk.CTkLabel(self, text="Calculation error", text_color="red").pack(
-                fill="x", padx=10, pady=(0, 5))
+            ctk.CTkLabel(self, text="Calculation error",
+                         text_color="red", anchor="w").pack(
+                fill="x", padx=10, pady=(0, 8))
         else:
-            info_frame = ctk.CTkFrame(self, fg_color="transparent")
-            info_frame.pack(fill="x", padx=10, pady=(0, 5))
-
-            ctk.CTkLabel(info_frame, text=f"Distance: {distance}").pack(side="left")
-            ctk.CTkLabel(info_frame, text=f"Time: {duration}").pack(side="right")
+            info = ctk.CTkFrame(self, fg_color="transparent")
+            info.pack(fill="x", padx=10, pady=(0, 8))
+            ctk.CTkLabel(info, text=f"Distance: {distance}",
+                         text_color=("gray30", "gray70")).pack(side="left")
+            ctk.CTkLabel(info, text=f"Time: {duration}",
+                         text_color=("gray30", "gray70")).pack(side="right")
