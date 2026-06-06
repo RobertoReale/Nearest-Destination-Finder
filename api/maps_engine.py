@@ -14,14 +14,21 @@ def _format_distance_duration(dist_val, dur_val):
     return dist_text, dur_text
 
 
+_GEOCODE_CACHE = {}
+
 def _geocode_single(gmaps, address):
+    if address in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[address]
     try:
         res = gmaps.geocode(address)
         if res:
             loc = res[0]['geometry']['location']
-            return (loc['lat'], loc['lng'])
+            coords = (loc['lat'], loc['lng'])
+            _GEOCODE_CACHE[address] = coords
+            return coords
     except Exception:
         pass
+    _GEOCODE_CACHE[address] = None
     return None
 
 

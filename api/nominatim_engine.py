@@ -1,22 +1,30 @@
 import requests
 import time
 from math import radians, cos, sin, asin, sqrt
+from functools import lru_cache
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _HEADERS = {"User-Agent": "nearest-destination-finder/1.0"}
 
-
-from functools import lru_cache
+_last_request_time = 0.0
 
 @lru_cache(maxsize=1024)
 def _geocode_single(address: str):
+    global _last_request_time
     try:
+        now = time.time()
+        time_since_last = now - _last_request_time
+        if time_since_last < 1.1:
+            time.sleep(1.1 - time_since_last)
+            
         r = requests.get(
             _NOMINATIM_URL,
             params={"q": address, "format": "json", "limit": 1},
             headers=_HEADERS,
             timeout=10,
         )
+        _last_request_time = time.time()
+        
         data = r.json()
         if data:
             return (float(data[0]["lat"]), float(data[0]["lon"]))
@@ -28,10 +36,8 @@ def _geocode_single(address: str):
 def _geocode_all(addresses: list) -> list:
     """Sequential geocoding — Nominatim enforces max 1 req/sec."""
     results = []
-    for i, addr in enumerate(addresses):
+    for addr in addresses:
         results.append(_geocode_single(addr))
-        if i < len(addresses) - 1:
-            time.sleep(1.1)
     return results
 
 
