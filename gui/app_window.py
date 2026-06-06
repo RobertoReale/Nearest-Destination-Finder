@@ -244,20 +244,24 @@ class AppWindow(ctk.CTk):
 
     def _on_provider_change(self, provider: str) -> None:
         """Show/hide API key rows and Nominatim note depending on provider."""
-        is_nominatim = provider == "Free (Nominatim)"
-        show_keys = not is_nominatim
-
-        for w in (self._google_key_label, self._google_key_frame,
-                  self._ors_key_label, self._ors_key_frame):
-            if show_keys:
-                w.grid()
-            else:
-                w.grid_remove()
-
-        if is_nominatim:
-            self._nominatim_note.grid()
-        else:
+        if provider == "Google Maps":
+            self._google_key_label.grid()
+            self._google_key_frame.grid()
+            self._ors_key_label.grid_remove()
+            self._ors_key_frame.grid_remove()
             self._nominatim_note.grid_remove()
+        elif provider == "OpenRouteService":
+            self._google_key_label.grid_remove()
+            self._google_key_frame.grid_remove()
+            self._ors_key_label.grid()
+            self._ors_key_frame.grid()
+            self._nominatim_note.grid_remove()
+        else: # Free (Nominatim)
+            self._google_key_label.grid_remove()
+            self._google_key_frame.grid_remove()
+            self._ors_key_label.grid_remove()
+            self._ors_key_frame.grid_remove()
+            self._nominatim_note.grid()
 
     # ── Main area ─────────────────────────────────────────────────────────────
 
