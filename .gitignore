@@ -29,6 +29,11 @@ config.json
 .map_cache.db
 # Runtime log — written to project root, never commit
 app.log
+# Route history — user specific, auto-created, do not commit
+route_history.json
+
+# Pytest cache
+.pytest_cache/
 
 # OS
 .DS_Store
