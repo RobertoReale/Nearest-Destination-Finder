@@ -1,6 +1,6 @@
 # Nearest Destination Finder
 
-A Python desktop app for comparing travel distances and optimizing multi-stop routes, powered by Google Maps or OpenRouteService.
+A Python desktop app for comparing travel distances and optimizing multi-stop routes. Works out of the box with no API key required — or connect Google Maps / OpenRouteService for road-accurate distances.
 
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -12,7 +12,7 @@ A Python desktop app for comparing travel distances and optimizing multi-stop ro
 - **Find Nearest** — compare distances from one origin to many destinations, sorted closest-first
 - **Traveling Salesman (TSP)** — find the optimal visit order to minimize total travel distance
 - **Interactive map** — origin pin, destination pins, and the full route drawn on a live map
-- **Dual provider support** — Google Maps (paid, precise) or OpenRouteService (free tier)
+- **Three providers** — Google Maps (precise road distances), OpenRouteService (free API), or **Free (Nominatim)** (no API key needed — straight-line distances)
 - **CSV import** — bulk-load destination addresses from a spreadsheet
 - **Persistent settings** — API keys, theme, and map style are saved locally in `config.json`
 - **Dark / Light / System theme** — live preview when switching
@@ -46,6 +46,8 @@ python main.py
 
 ## Getting API Keys
 
+> **No API key? No problem.** Select **Free (Nominatim)** as the provider — the API key fields disappear and the app works immediately using OpenStreetMap geocoding and straight-line (haversine) distances. Results are labeled `(straight-line)` to make the approximation clear. Geocoding is sequential (~1 sec per address) due to Nominatim's rate limit.
+
 ### Google Maps
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and create a project
@@ -66,8 +68,10 @@ python main.py
 
 ## Usage
 
-1. Enter your API key in the **Settings** sidebar and click **Save Settings**
-2. Select a **Provider** and **Mode**
+1. Select a **Provider** in the sidebar:
+   - **Free (Nominatim)** — no API key needed, straight-line distances
+   - **Google Maps** or **OpenRouteService** — enter the API key and click **Save Settings**
+2. Select a **Mode**
 3. Type your **Origin** address
 4. Add **Destinations** one by one, or click **Import CSV** to load from a file
 5. Click **Calculate Routes**
@@ -107,7 +111,8 @@ Nearest-Destination-Finder/
 │   └── components.py         # DestinationList and ResultCard widgets
 ├── api/
 │   ├── maps_engine.py        # Google Maps (Distance Matrix + Directions)
-│   └── openroute_engine.py   # OpenRouteService (Distance Matrix + Optimization)
+│   ├── openroute_engine.py   # OpenRouteService (Distance Matrix + Optimization)
+│   └── nominatim_engine.py   # Free mode: OSM geocoding + haversine distances
 └── utils/
     ├── config_manager.py     # Load / save config.json
     └── data_importer.py      # CSV address importer (pandas)
@@ -119,7 +124,7 @@ Nearest-Destination-Finder/
 
 - `config.json` is listed in `.gitignore` because it stores your API keys — never commit it
 - The tile cache (`.map_cache.db`) is also excluded; it is regenerated automatically
-- All geocoding is done in parallel using `ThreadPoolExecutor` to minimize wait time
+- Google Maps and ORS geocoding is parallel (`ThreadPoolExecutor`) — Nominatim is sequential (1 req/sec rate limit)
 - GUI updates from background threads use `self.after(0, callback)` for thread safety
 
 ---

@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.components import DestinationList, ResultCard
 from utils import config_manager, data_importer
-from api import maps_engine, openroute_engine
+from api import maps_engine, openroute_engine, nominatim_engine
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MAP_CACHE = os.path.join(_ROOT, ".map_cache.db")
@@ -21,9 +21,13 @@ _TILE_SERVERS = {
     "Standard (OSM)": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 }
 
-_PROVIDER_NAMES = ["Google Maps", "OpenRouteService"]
+_PROVIDER_NAMES = ["Google Maps", "OpenRouteService", "Free (Nominatim)"]
 # Migrate old config values that used internal identifiers
-_PROVIDER_LEGACY = {"google": "Google Maps", "openrouteservice": "OpenRouteService"}
+_PROVIDER_LEGACY = {
+    "google": "Google Maps",
+    "openrouteservice": "OpenRouteService",
+    "free": "Free (Nominatim)",
+}
 
 
 class AppWindow(ctk.CTk):
@@ -46,8 +50,10 @@ class AppWindow(ctk.CTk):
 
         self.google_key_entry.insert(0, self.config.get("google_api_key", ""))
         self.ors_key_entry.insert(0, self.config.get("openrouteservice_api_key", ""))
-        raw = self.config.get("default_provider", "google")
-        self.provider_var.set(_PROVIDER_LEGACY.get(raw, raw))
+        raw = self.config.get("default_provider", "Google Maps")
+        provider = _PROVIDER_LEGACY.get(raw, raw)
+        self.provider_var.set(provider)
+        self._on_provider_change(provider)
 
         self.current_pins = []
         self.current_polyline = None
@@ -69,17 +75,18 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(self.sidebar, text="Provider:").grid(
             row=1, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
-            self.sidebar, values=_PROVIDER_NAMES, variable=self.provider_var
+            self.sidebar, values=_PROVIDER_NAMES, variable=self.provider_var,
+            command=self._on_provider_change,
         ).grid(row=2, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # API keys with show/hide toggle
-        ctk.CTkLabel(self.sidebar, text="Google API Key:").grid(
-            row=3, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.google_key_entry = self._key_row(self.sidebar, row=4)
+        self._google_key_label = ctk.CTkLabel(self.sidebar, text="Google API Key:")
+        self._google_key_label.grid(row=3, column=0, padx=20, pady=(10, 0), sticky="w")
+        self.google_key_entry, self._google_key_frame = self._key_row(self.sidebar, row=4)
 
-        ctk.CTkLabel(self.sidebar, text="OpenRouteService API Key:").grid(
-            row=5, column=0, padx=20, pady=(10, 0), sticky="w")
-        self.ors_key_entry = self._key_row(self.sidebar, row=6)
+        self._ors_key_label = ctk.CTkLabel(self.sidebar, text="OpenRouteService API Key:")
+        self._ors_key_label.grid(row=5, column=0, padx=20, pady=(10, 0), sticky="w")
+        self.ors_key_entry, self._ors_key_frame = self._key_row(self.sidebar, row=6)
 
         # Mode
         self.mode_var = ctk.StringVar(value="Find Nearest")
@@ -117,8 +124,8 @@ class AppWindow(ctk.CTk):
                       command=self.save_settings).grid(
             row=14, column=0, padx=20, pady=(0, 20), sticky="ew")
 
-    def _key_row(self, parent: ctk.CTkFrame, row: int) -> ctk.CTkEntry:
-        """Returns a password CTkEntry with an eye-toggle button beside it."""
+    def _key_row(self, parent: ctk.CTkFrame, row: int) -> tuple:
+        """Returns (CTkEntry, frame) — frame can be grid_remove()'d to hide the row."""
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.grid(row=row, column=0, padx=20, pady=(5, 10), sticky="ew")
         frame.grid_columnconfigure(0, weight=1)
@@ -130,11 +137,21 @@ class AppWindow(ctk.CTk):
                       command=lambda e=entry: e.configure(
                           show="" if e.cget("show") == "*" else "*")
                       ).grid(row=0, column=1, padx=(5, 0))
-        return entry
+        return entry, frame
 
     def _apply_map_style(self, style: str) -> None:
         url = _TILE_SERVERS.get(style, _TILE_SERVERS["Voyager"])
         self.map_widget.set_tile_server(url, max_zoom=19)
+
+    def _on_provider_change(self, provider: str) -> None:
+        """Show or hide API key rows depending on whether the provider needs a key."""
+        show = provider != "Free (Nominatim)"
+        for w in (self._google_key_label, self._google_key_frame,
+                  self._ors_key_label, self._ors_key_frame):
+            if show:
+                w.grid()
+            else:
+                w.grid_remove()
 
     # ── Main area ─────────────────────────────────────────────────────────────
 
@@ -248,10 +265,14 @@ class AppWindow(ctk.CTk):
             messagebox.showerror("Error", "Please enter at least one destination.")
             return
 
-        api_key = (self.google_key_entry.get().strip()
-                   if provider == "Google Maps"
-                   else self.ors_key_entry.get().strip())
-        if not api_key:
+        if provider == "Google Maps":
+            api_key = self.google_key_entry.get().strip()
+        elif provider == "OpenRouteService":
+            api_key = self.ors_key_entry.get().strip()
+        else:
+            api_key = None
+
+        if provider != "Free (Nominatim)" and not api_key:
             messagebox.showerror("Error", f"Please enter an API key for {provider}.")
             return
 
@@ -260,8 +281,12 @@ class AppWindow(ctk.CTk):
         self.clear_results()
         self.clear_map()
 
-        ctk.CTkLabel(self.results_area,
-                     text="Communicating with API, please wait...").pack(pady=20)
+        wait_msg = (
+            f"Geocoding {len(destinations)} address(es) via Nominatim — ~{len(destinations) + 1}s…"
+            if provider == "Free (Nominatim)"
+            else "Communicating with API, please wait..."
+        )
+        ctk.CTkLabel(self.results_area, text=wait_msg).pack(pady=20)
 
         threading.Thread(
             target=self.run_api_request,
@@ -271,7 +296,12 @@ class AppWindow(ctk.CTk):
 
     def run_api_request(self, provider, mode, api_key, origin, destinations):
         is_tsp = mode == "Traveling Salesman (TSP)"
-        engine = maps_engine if provider == "Google Maps" else openroute_engine
+        if provider == "Google Maps":
+            engine = maps_engine
+        elif provider == "OpenRouteService":
+            engine = openroute_engine
+        else:
+            engine = nominatim_engine
 
         if is_tsp:
             res = engine.get_optimized_route(api_key, origin, destinations)
