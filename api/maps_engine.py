@@ -75,9 +75,10 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
 
         results = []
         elements = response['rows'][0]['elements']
+        dest_addresses = response.get('destination_addresses') or destinations
 
         for i, element in enumerate(elements):
-            dest_name = response.get('destination_addresses', destinations)[i]
+            dest_name = dest_addresses[i] if i < len(dest_addresses) else destinations[i]
             if element['status'] == 'OK':
                 results.append({
                     "destination": dest_name,

@@ -98,7 +98,7 @@ class DestinationList(ctk.CTkScrollableFrame):
         display_name = addr if addr else "This Destination"
         
         # Create popup window
-        popup = ctk.CTkToplevel(self)
+        popup = ctk.CTkToplevel(self.winfo_toplevel())
         popup.title(f"Settings: {display_name[:30]}")
         popup.geometry("380x250")
         popup.transient(self.winfo_toplevel())

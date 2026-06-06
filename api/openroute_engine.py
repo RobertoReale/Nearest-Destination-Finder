@@ -262,16 +262,19 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         total_dist = route_obj.get('distance', prev_dist)
         total_dur = route_obj.get('duration', prev_dur)
 
-        dir_res = client.directions(
-            coordinates=ordered_coords,
-            profile=ors_profile,
-            format='geojson'
-        )
-
         polyline_path = None
-        if 'features' in dir_res and dir_res['features']:
-            coords = dir_res['features'][0]['geometry']['coordinates']
-            polyline_path = [(c[1], c[0]) for c in coords]  # (lat, lon)
+        try:
+            dir_res = client.directions(
+                coordinates=ordered_coords,
+                profile=ors_profile,
+                format='geojson'
+            )
+            if 'features' in dir_res and dir_res['features']:
+                coords = dir_res['features'][0]['geometry']['coordinates']
+                polyline_path = [(c[1], c[0]) for c in coords]  # (lat, lon)
+        except Exception as dir_err:
+            from utils.logger import get_logger
+            get_logger("openroute").warning(f"Failed to fetch detailed directions polyline: {dir_err}")
 
         total_dist_text, total_dur_text = _format_distance_duration(total_dist, total_dur)
 

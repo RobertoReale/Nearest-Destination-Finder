@@ -173,7 +173,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-All 22 unit tests should pass. Tests use a dedicated `.geo_cache_test.db` so the real geocoding cache is never touched.
+All 23 unit tests should pass. Tests use a dedicated `.geo_cache_test.db` so the real geocoding cache is never touched.
 
 ---
 

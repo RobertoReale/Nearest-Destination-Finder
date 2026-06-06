@@ -1123,9 +1123,30 @@ class AppWindow(ctk.CTk):
         # Define color representation mapping
         COLORS = ["#3498db", "#2ecc71", "#e74c3c", "#9b59b6", "#f1c40f", "#1abc9c"]
         
+        # Calculate stats and dynamic formatting for highlights and rows first
+        run_stats = []
+        for idx, run in enumerate(checked_runs):
+            color = COLORS[idx % len(COLORS)]
+            
+            # Sum values to ensure correct comparison
+            total_d = sum(r.get("distance_value", 0) for r in run.get("results", []) if r.get("distance_value") is not None and r.get("distance_value") != float('inf'))
+            total_t = sum(r.get("duration_value", 0) for r in run.get("results", []) if r.get("duration_value") is not None and r.get("duration_value") != float('inf'))
+            
+            formatted_dist = self._format_distance(total_d)
+            
+            run_stats.append({
+                "run": run,
+                "distance": total_d,
+                "duration": total_t,
+                "color": color,
+                "formatted_distance": formatted_dist
+            })
+
         # Populate rows
-        for row, run in enumerate(checked_runs, start=1):
-            color = COLORS[(row - 1) % len(COLORS)]
+        for idx, stats in enumerate(run_stats, start=1):
+            run = stats["run"]
+            color = stats["color"]
+            row = idx
             
             # Colored circle indicator + Name
             name_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
@@ -1143,28 +1164,12 @@ class AppWindow(ctk.CTk):
             details_lbl.grid(row=row, column=1, padx=10, pady=5, sticky="w")
             
             # Distance
-            dist_lbl = ctk.CTkLabel(table_frame, text=run["total_distance"], anchor="w")
+            dist_lbl = ctk.CTkLabel(table_frame, text=stats["formatted_distance"], anchor="w")
             dist_lbl.grid(row=row, column=2, padx=10, pady=5, sticky="w")
             
             # Duration
             dur_lbl = ctk.CTkLabel(table_frame, text=run["total_duration"], anchor="w")
             dur_lbl.grid(row=row, column=3, padx=10, pady=5, sticky="w")
-            
-        # Calculate stats for highlights
-        run_stats = []
-        for row, run in enumerate(checked_runs):
-            color = COLORS[row % len(COLORS)]
-            
-            # Sum values to ensure correct comparison
-            total_d = sum(r.get("distance_value", 0) for r in run.get("results", []) if r.get("distance_value") is not None and r.get("distance_value") != float('inf'))
-            total_t = sum(r.get("duration_value", 0) for r in run.get("results", []) if r.get("duration_value") is not None and r.get("duration_value") != float('inf'))
-            
-            run_stats.append({
-                "run": run,
-                "distance": total_d,
-                "duration": total_t,
-                "color": color
-            })
             
         # Find shortest (min distance) and fastest (min duration)
         shortest = min(run_stats, key=lambda x: x["distance"])
@@ -1177,7 +1182,7 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(highlights_frame, text="Highlights", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=10, pady=(5, 2))
         
         # Shortest
-        s_text = f"🏆 Shortest Route: {shortest['run']['name']} ({shortest['run']['total_distance']})"
+        s_text = f"🏆 Shortest Route: {shortest['run']['name']} ({shortest['formatted_distance']})"
         s_lbl = ctk.CTkLabel(highlights_frame, text=s_text, text_color=shortest["color"], font=ctk.CTkFont(weight="bold"), anchor="w")
         s_lbl.pack(fill="x", padx=10, pady=2)
         

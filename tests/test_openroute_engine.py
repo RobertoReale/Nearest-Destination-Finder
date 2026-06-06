@@ -144,3 +144,36 @@ def test_get_optimized_route_non_round_trip(mock_client_class):
     assert len(result["results"]) == 1
     assert result["results"][0]["destination"] == "Naples"
     assert result["polyline_path"] == [(41.9028, 12.4964), (40.8518, 14.2681)]
+
+@patch('openrouteservice.Client')
+def test_get_optimized_route_directions_failure(mock_client_class):
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    
+    def pelias_mock(text, size):
+        if text == "Rome":
+            return {'features': [{'geometry': {'coordinates': [12.4964, 41.9028]}}]}
+        elif text == "Naples":
+            return {'features': [{'geometry': {'coordinates': [14.2681, 40.8518]}}]}
+        return {'features': []}
+    mock_client.pelias_search.side_effect = pelias_mock
+    
+    mock_client.optimization.return_value = {
+        'routes': [{
+            'steps': [
+                {'type': 'job', 'job': 0, 'distance': 100000, 'duration': 3600}
+            ],
+            'distance': 100000,
+            'duration': 3600
+        }]
+    }
+    
+    # Mock directions to raise exception
+    mock_client.directions.side_effect = Exception("Directions service offline")
+    
+    result = get_optimized_route("dummy_key", "Rome", ["Naples"], round_trip=False)
+    assert result["status"] == "OK"
+    assert result["origin_coords"] == (41.9028, 12.4964)
+    assert len(result["results"]) == 1
+    assert result["results"][0]["destination"] == "Naples"
+    assert result["polyline_path"] is None

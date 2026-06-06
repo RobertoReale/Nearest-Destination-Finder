@@ -34,7 +34,7 @@ def _geocode_single(address: str):
         _last_request_time = time.time()
 
         data = r.json()
-        if data:
+        if isinstance(data, list) and len(data) > 0:
             coords = (float(data[0]["lat"]), float(data[0]["lon"]))
             set_cached_coords(address, coords)
             return coords
