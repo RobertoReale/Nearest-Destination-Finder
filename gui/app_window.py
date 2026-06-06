@@ -7,6 +7,7 @@ from datetime import datetime
 import sys
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
+_polyline_lib = None
 try:
     import polyline as _polyline_lib
     _HAS_POLYLINE = True
@@ -58,7 +59,7 @@ def create_circle_marker_icon(text, bg_color="#3498db", size=28):
         h = bbox[3] - bbox[1]
     except AttributeError:
         # Fallback for older Pillow versions
-        w, h = draw.textsize(text, font=font)
+        w, h = getattr(draw, 'textsize')(text, font=font)
         
     x = (size - w) / 2
     y = (size - h) / 2 - 1
@@ -162,7 +163,7 @@ class AppWindow(ctk.CTk):
         ).grid(row=9, column=0, padx=20, pady=(5, 5), sticky="ew")
 
         # Round-trip TSP (Return to Origin) checkbox
-        self.round_trip_var = ctk.BooleanVar(value=self.config.get("round_trip", False))
+        self.round_trip_var = ctk.BooleanVar(value=bool(self.config.get("round_trip", False)))
         self.round_trip_cb = ctk.CTkCheckBox(
             self.sidebar, text="Return to Origin (Round-Trip)",
             variable=self.round_trip_var
@@ -398,7 +399,7 @@ class AppWindow(ctk.CTk):
         self.config["theme"] = self.theme_var.get()
         self.config["map_style"] = self.map_style_var.get()
         self.config["unit"] = self.unit_var.get()
-        self.config["round_trip"] = self.round_trip_var.get()
+        self.config["round_trip"] = self.round_trip_var.get()  # type: ignore[assignment]
         if config_manager.save_config(self.config):
             messagebox.showinfo("Settings Saved", "Settings saved successfully.")
         else:
@@ -717,7 +718,7 @@ class AppWindow(ctk.CTk):
                     self.current_pins.append(p)
 
             polyline_path = response.get("polyline_path")
-            if not polyline_path and response.get("polyline") and _HAS_POLYLINE:
+            if not polyline_path and response.get("polyline") and _polyline_lib is not None:
                 polyline_path = _polyline_lib.decode(response["polyline"])
             if polyline_path and len(polyline_path) >= 2:
                 self.current_polyline = self.map_widget.set_path(polyline_path)

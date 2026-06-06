@@ -63,7 +63,7 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
         }
         gmaps_mode = mode_map.get(transport_mode, "driving")
 
-        response = gmaps.distance_matrix(
+        response = gmaps.distance_matrix(  # type: ignore[attr-defined]
             origins=[origin],
             destinations=destinations,
             mode=gmaps_mode,
@@ -159,7 +159,7 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
             target = destinations[-1]
             waypoints = destinations[:-1]
 
-        response = gmaps.directions(
+        response = gmaps.directions(  # type: ignore[attr-defined]
             origin=origin,
             destination=target,
             waypoints=waypoints,

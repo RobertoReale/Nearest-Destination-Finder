@@ -20,7 +20,7 @@ class DestinationList(ctk.CTkScrollableFrame):
             entry.insert(0, default_text)
 
         if self.on_enter_pressed:
-            entry.bind("<Return>", lambda event: self.on_enter_pressed())
+            entry.bind("<Return>", lambda event, cb=self.on_enter_pressed: cb())
 
         # Settings gear button
         settings_btn = ctk.CTkButton(row_frame, text="⚙", width=30, fg_color="gray60", hover_color="gray70",

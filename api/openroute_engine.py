@@ -34,7 +34,7 @@ def _geocode_address(client, address):
 
 def _geocode_all(client, addresses):
     """Geocode multiple addresses in parallel. Returns a list of coords in input order."""
-    results = [None] * len(addresses)
+    results: list = [None] * len(addresses)
     with ThreadPoolExecutor(max_workers=min(10, len(addresses))) as executor:
         future_to_idx = {executor.submit(_geocode_address, client, addr): i
                          for i, addr in enumerate(addresses)}
@@ -94,7 +94,7 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
         if not valid_destinations:
             return {"status": "ERROR", "error_message": "Could not geocode any destinations"}
 
-        response = client.distance_matrix(
+        response = client.distance_matrix(  # type: ignore[attr-defined]
             locations=locations,
             sources=[0],
             destinations=list(range(1, len(locations))),
@@ -198,7 +198,7 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         else:
             vehicles = [{"id": 1, "profile": ors_profile, "start": origin_coords}]
 
-        response = client.optimization(jobs=jobs, vehicles=vehicles)
+        response = client.optimization(jobs=jobs, vehicles=vehicles)  # type: ignore[attr-defined]
 
         if 'code' in response and response['code'] != 0:
             return {"status": "ERROR", "error_message": response.get('error', 'Optimization API error')}
@@ -264,7 +264,7 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
 
         polyline_path = None
         try:
-            dir_res = client.directions(
+            dir_res = client.directions(  # type: ignore[attr-defined]
                 coordinates=ordered_coords,
                 profile=ors_profile,
                 format='geojson'
