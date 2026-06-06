@@ -115,3 +115,23 @@ def test_get_optimized_route_round_trip():
     assert len(result["results"]) == 2  # Naples + return to Rome
     assert result["results"][0]["destination"] == "Naples"
     assert result["results"][1]["destination"] == "Rome"
+
+@responses.activate
+def test_get_optimized_route_non_round_trip():
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "41.9028", "lon": "12.4964"}],
+        status=200
+    )
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "40.8518", "lon": "14.2681"}],
+        status=200
+    )
+
+    result = get_optimized_route(None, "Rome", ["Naples"], round_trip=False)
+    assert result["status"] == "OK"
+    assert len(result["results"]) == 1
+    assert result["results"][0]["destination"] == "Naples"

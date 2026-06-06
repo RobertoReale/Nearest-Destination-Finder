@@ -18,12 +18,14 @@ from utils.geo_cache import get_cached_coords, set_cached_coords
 def _geocode_address(client, address):
     cached = get_cached_coords(address)
     if cached:
-        return cached
+        # Standard cache is (lat, lon); ORS client APIs expect [lon, lat]
+        return [cached[1], cached[0]]
     try:
         res = client.pelias_search(text=address, size=1)
         if res['features']:
             coords = res['features'][0]['geometry']['coordinates']  # [lon, lat]
-            set_cached_coords(address, coords)
+            # Standard cache stores coordinates as (lat, lon)
+            set_cached_coords(address, (coords[1], coords[0]))
             return coords
     except Exception:
         pass
@@ -50,7 +52,9 @@ def geocode_address(api_key, address):
         return None
     try:
         client = openrouteservice.Client(key=api_key)
-        return _geocode_address(client, address)
+        coords = _geocode_address(client, address)
+        if coords:
+            return (coords[1], coords[0])
     except Exception:
         return None
 
@@ -198,6 +202,9 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
 
         if 'code' in response and response['code'] != 0:
             return {"status": "ERROR", "error_message": response.get('error', 'Optimization API error')}
+
+        if not response.get('routes'):
+            return {"status": "ERROR", "error_message": "No optimized route found in the API response."}
 
         route_obj = response['routes'][0]
         route_steps = route_obj['steps']

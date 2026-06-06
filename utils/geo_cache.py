@@ -1,8 +1,10 @@
 import sqlite3
 import os
 import json
+import sys
 
-_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".geo_cache.db")
+_DB_NAME = ".geo_cache_test.db" if "pytest" in sys.modules else ".geo_cache.db"
+_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), _DB_NAME)
 
 def _get_conn():
     conn = sqlite3.connect(_DB_PATH)

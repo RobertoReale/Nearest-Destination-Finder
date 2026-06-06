@@ -49,3 +49,61 @@ def test_get_distance_matrix_no_key(mock_client_class):
     result = get_distance_matrix("", "Rome", ["Naples"])
     assert result["status"] == "ERROR"
     assert "Missing API Key" in result["error_message"]
+
+@patch('googlemaps.Client')
+def test_get_optimized_route_round_trip(mock_client_class):
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    
+    mock_client.directions.return_value = [{
+        'legs': [
+            {
+                'distance': {'text': '100 km', 'value': 100000},
+                'duration': {'text': '1 hour', 'value': 3600},
+                'end_address': 'Naples, Italy',
+                'end_location': {'lat': 40.8518, 'lng': 14.2681},
+                'start_location': {'lat': 41.9028, 'lng': 12.4964}
+            },
+            {
+                'distance': {'text': '100 km', 'value': 100000},
+                'duration': {'text': '1 hour', 'value': 3600},
+                'end_address': 'Rome, Italy',
+                'end_location': {'lat': 41.9028, 'lng': 12.4964},
+                'start_location': {'lat': 40.8518, 'lng': 14.2681}
+            }
+        ],
+        'overview_polyline': {'points': 'mock_polyline'}
+    }]
+    
+    result = get_optimized_route("dummy_key", "Rome", ["Naples"], round_trip=True)
+    assert result["status"] == "OK"
+    assert result["origin_coords"] == (41.9028, 12.4964)
+    assert len(result["results"]) == 2
+    assert result["results"][0]["destination"] == "Naples, Italy"
+    assert result["results"][1]["destination"] == "Rome, Italy"
+    assert result["polyline"] == "mock_polyline"
+
+@patch('googlemaps.Client')
+def test_get_optimized_route_non_round_trip(mock_client_class):
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    
+    mock_client.directions.return_value = [{
+        'legs': [
+            {
+                'distance': {'text': '100 km', 'value': 100000},
+                'duration': {'text': '1 hour', 'value': 3600},
+                'end_address': 'Naples, Italy',
+                'end_location': {'lat': 40.8518, 'lng': 14.2681},
+                'start_location': {'lat': 41.9028, 'lng': 12.4964}
+            }
+        ],
+        'overview_polyline': {'points': 'mock_polyline'}
+    }]
+    
+    result = get_optimized_route("dummy_key", "Rome", ["Naples"], round_trip=False)
+    assert result["status"] == "OK"
+    assert result["origin_coords"] == (41.9028, 12.4964)
+    assert len(result["results"]) == 1
+    assert result["results"][0]["destination"] == "Naples, Italy"
+    assert result["polyline"] == "mock_polyline"
