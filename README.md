@@ -14,6 +14,7 @@ A Python desktop app for comparing travel distances and optimizing multi-stop ro
 - **Interactive map** — origin pin, destination pins, and the full route polyline drawn on a live map
 - **Auto-fit map** — after calculation, the map automatically centers and zooms to fit all markers
 - **Three providers** — Google Maps (precise road distances + times), OpenRouteService (free API), or **Free (Nominatim)** (no API key needed — straight-line haversine distances)
+- **Persistent Local Caching** — Geocoding lookups and map tiles are cached in a local SQLite database for instant reloading and zero extra API calls.
 - **Transport modes** — Driving, Walking, Bicycling, Transit (provider-dependent)
 - **Departure time** — specify a future departure for traffic-aware routing (Google Maps)
 - **CSV import** — bulk-load destination addresses from a spreadsheet
@@ -143,7 +144,7 @@ Nearest-Destination-Finder/
 ## Notes
 
 - `config.json` is listed in `.gitignore` because it stores your API keys — never commit it
-- The tile cache (`.map_cache.db`) is also excluded; it is regenerated automatically
+- Map tiles are cached in `.map_cache.db` and geocoding results in `.geo_cache.db` — both are auto-generated and excluded from git.
 - `app.log` is written to the project root and excluded from git
 - Google Maps and ORS geocoding uses `ThreadPoolExecutor` for parallel lookups; Nominatim is sequential (1 req/sec rate limit)
 - GUI updates from background threads use `self.after(0, callback)` for thread safety

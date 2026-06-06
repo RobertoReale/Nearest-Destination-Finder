@@ -2,6 +2,7 @@ import requests
 import time
 from math import radians, cos, sin, asin, sqrt
 from utils.logger import get_logger
+from utils.geo_cache import get_cached_coords, set_cached_coords
 
 logger = get_logger("nominatim")
 
@@ -9,12 +10,12 @@ _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _HEADERS = {"User-Agent": "nearest-destination-finder/1.0"}
 
 _last_request_time = 0.0
-_GEOCODE_CACHE: dict = {}  # Only caches successful results — failed lookups are never stored
 
 
 def _geocode_single(address: str):
-    if address in _GEOCODE_CACHE:
-        return _GEOCODE_CACHE[address]
+    cached = get_cached_coords(address)
+    if cached:
+        return cached
 
     global _last_request_time
     try:
@@ -35,7 +36,7 @@ def _geocode_single(address: str):
         data = r.json()
         if data:
             coords = (float(data[0]["lat"]), float(data[0]["lon"]))
-            _GEOCODE_CACHE[address] = coords
+            set_cached_coords(address, coords)
             return coords
     except requests.exceptions.RequestException as e:
         logger.error(f"Network error geocoding '{address}': {e}")

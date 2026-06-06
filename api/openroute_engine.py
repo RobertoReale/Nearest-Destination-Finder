@@ -13,16 +13,17 @@ def _format_distance_duration(dist_val, dur_val):
     return dist_text, dur_text
 
 
-_GEOCODE_CACHE = {}
+from utils.geo_cache import get_cached_coords, set_cached_coords
 
 def _geocode_address(client, address):
-    if address in _GEOCODE_CACHE:
-        return _GEOCODE_CACHE[address]
+    cached = get_cached_coords(address)
+    if cached:
+        return cached
     try:
         res = client.pelias_search(text=address, size=1)
         if res['features']:
             coords = res['features'][0]['geometry']['coordinates']  # [lon, lat]
-            _GEOCODE_CACHE[address] = coords
+            set_cached_coords(address, coords)
             return coords
     except Exception:
         pass

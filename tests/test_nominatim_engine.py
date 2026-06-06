@@ -1,13 +1,18 @@
 import pytest
 import requests
 import responses
-from api.nominatim_engine import get_distance_matrix, get_optimized_route, _geocode_single, _GEOCODE_CACHE
+from api.nominatim_engine import get_distance_matrix, get_optimized_route, _geocode_single
+from utils.geo_cache import get_cached_coords, _get_conn
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    _GEOCODE_CACHE.clear()
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM geocode")
+        conn.commit()
     yield
-    _GEOCODE_CACHE.clear()
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM geocode")
+        conn.commit()
 
 @responses.activate
 def test_geocode_single_success():
@@ -40,7 +45,7 @@ def test_geocode_single_failure_not_cached():
     )
     result = _geocode_single("SomePlace")
     assert result is None
-    assert "SomePlace" not in _GEOCODE_CACHE
+    assert get_cached_coords("SomePlace") is None
 
 @responses.activate
 def test_get_distance_matrix_success():

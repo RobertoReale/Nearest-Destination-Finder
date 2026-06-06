@@ -1,10 +1,13 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from api.openroute_engine import get_distance_matrix, get_optimized_route, _GEOCODE_CACHE
+from api.openroute_engine import get_distance_matrix, get_optimized_route
+from utils.geo_cache import _get_conn
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    _GEOCODE_CACHE.clear()
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM geocode")
+        conn.commit()
 
 @patch('openrouteservice.Client')
 def test_get_distance_matrix_success(mock_client_class):
