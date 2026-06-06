@@ -48,7 +48,7 @@ class DestinationList(ctk.CTkScrollableFrame):
 
 class ResultCard(ctk.CTkFrame):
     def __init__(self, master, destination, distance, duration,
-                 step=None, is_error=False, **kwargs):
+                 step=None, is_error=False, error_text="Calculation error", **kwargs):
         kwargs.setdefault("border_width", 1)
         kwargs.setdefault("border_color", ("gray70", "gray30"))
         super().__init__(master, **kwargs)
@@ -60,7 +60,7 @@ class ResultCard(ctk.CTkFrame):
             fill="x", padx=10, pady=(8, 2))
 
         if is_error:
-            ctk.CTkLabel(self, text="Calculation error",
+            ctk.CTkLabel(self, text=error_text,
                          text_color="red", anchor="w").pack(
                 fill="x", padx=10, pady=(0, 8))
         else:

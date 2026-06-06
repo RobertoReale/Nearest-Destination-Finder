@@ -1,7 +1,13 @@
 import pytest
 import requests
 import responses
-from api.nominatim_engine import get_distance_matrix, get_optimized_route, _geocode_single
+from api.nominatim_engine import get_distance_matrix, get_optimized_route, _geocode_single, _GEOCODE_CACHE
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    _GEOCODE_CACHE.clear()
+    yield
+    _GEOCODE_CACHE.clear()
 
 @responses.activate
 def test_geocode_single_success():
@@ -11,9 +17,6 @@ def test_geocode_single_success():
         json=[{"lat": "41.9028", "lon": "12.4964"}],
         status=200
     )
-    # Clear the cache for the test to run
-    _geocode_single.cache_clear()
-    
     result = _geocode_single("Rome")
     assert result == (41.9028, 12.4964)
 
@@ -24,14 +27,23 @@ def test_geocode_single_failure():
         "https://nominatim.openstreetmap.org/search",
         body=requests.exceptions.RequestException("Timeout")
     )
-    _geocode_single.cache_clear()
-    
     result = _geocode_single("InvalidPlace")
     assert result is None
 
 @responses.activate
+def test_geocode_single_failure_not_cached():
+    """A failed geocode should NOT be cached — retrying should hit the network again."""
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        body=requests.exceptions.RequestException("Timeout")
+    )
+    result = _geocode_single("SomePlace")
+    assert result is None
+    assert "SomePlace" not in _GEOCODE_CACHE
+
+@responses.activate
 def test_get_distance_matrix_success():
-    # Mocking coordinates for Rome and Naples
     responses.add(
         responses.GET,
         "https://nominatim.openstreetmap.org/search",
@@ -46,8 +58,7 @@ def test_get_distance_matrix_success():
         status=200,
         match=[responses.matchers.query_param_matcher({"q": "Naples", "format": "json", "limit": "1"})]
     )
-    _geocode_single.cache_clear()
-    
+
     result = get_distance_matrix(None, "Rome", ["Naples"])
     assert result["status"] == "OK"
     assert result["origin_coords"] == (41.9028, 12.4964)
@@ -63,8 +74,6 @@ def test_get_distance_matrix_origin_failure():
         json=[],
         status=200
     )
-    _geocode_single.cache_clear()
-    
     result = get_distance_matrix(None, "Nowhere", ["Naples"])
     assert result["status"] == "ERROR"
     assert "Could not geocode origin" in result["error_message"]

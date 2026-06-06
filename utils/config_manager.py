@@ -10,7 +10,10 @@ DEFAULT_CONFIG = {
     "default_provider": "Google Maps",
     "theme": "Dark",
     "map_style": "Voyager",
+    "transport_mode": "Driving",
+    "mode": "Find Nearest",
 }
+
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
@@ -27,6 +30,7 @@ def load_config():
     except Exception as e:
         print(f"Error loading config: {e}")
         return DEFAULT_CONFIG.copy()
+
 
 def save_config(config):
     try:

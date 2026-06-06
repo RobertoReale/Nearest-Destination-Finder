@@ -186,22 +186,26 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         if 'code' in response and response['code'] != 0:
             return {"status": "ERROR", "error_message": response.get('error', 'Optimization API error')}
 
-        route_steps = response['routes'][0]['steps']
+        route_obj = response['routes'][0]
+        route_steps = route_obj['steps']
 
         ordered_coords = [origin_coords]
         results = []
-        total_dist = 0
-        total_dur = 0
+        # VROOM step durations/distances are cumulative from route start; compute per-leg deltas
+        prev_dist = 0
+        prev_dur = 0
 
         for step in route_steps:
             if step['type'] == 'job':
                 job_id = step['job']
                 ordered_coords.append(locations[job_id])
 
-                dist_val = step.get('distance', 0)
-                dur_val = step.get('duration', 0)
-                total_dist += dist_val
-                total_dur += dur_val
+                cum_dist = step.get('distance', 0)
+                cum_dur = step.get('duration', 0)
+                dist_val = max(0, cum_dist - prev_dist)
+                dur_val = max(0, cum_dur - prev_dur)
+                prev_dist = cum_dist
+                prev_dur = cum_dur
 
                 dist_text, dur_text = _format_distance_duration(dist_val, dur_val)
                 results.append({
@@ -213,6 +217,10 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
                     "step": len(results) + 1,
                     "dest_coords": (locations[job_id][1], locations[job_id][0])  # (lat, lon)
                 })
+
+        # Use route-level totals (authoritative); fall back to last cumulative values
+        total_dist = route_obj.get('distance', prev_dist)
+        total_dur = route_obj.get('duration', prev_dur)
 
         dir_res = client.directions(
             coordinates=ordered_coords,

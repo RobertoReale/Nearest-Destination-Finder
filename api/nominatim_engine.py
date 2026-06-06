@@ -1,7 +1,6 @@
 import requests
 import time
 from math import radians, cos, sin, asin, sqrt
-from functools import lru_cache
 from utils.logger import get_logger
 
 logger = get_logger("nominatim")
@@ -10,16 +9,20 @@ _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _HEADERS = {"User-Agent": "nearest-destination-finder/1.0"}
 
 _last_request_time = 0.0
+_GEOCODE_CACHE: dict = {}  # Only caches successful results — failed lookups are never stored
 
-@lru_cache(maxsize=1024)
+
 def _geocode_single(address: str):
+    if address in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[address]
+
     global _last_request_time
     try:
         now = time.time()
         time_since_last = now - _last_request_time
         if time_since_last < 1.1:
             time.sleep(1.1 - time_since_last)
-            
+
         logger.info(f"Geocoding address via Nominatim: {address}")
         r = requests.get(
             _NOMINATIM_URL,
@@ -28,24 +31,24 @@ def _geocode_single(address: str):
             timeout=10,
         )
         _last_request_time = time.time()
-        
+
         data = r.json()
         if data:
-            return (float(data[0]["lat"]), float(data[0]["lon"]))
+            coords = (float(data[0]["lat"]), float(data[0]["lon"]))
+            _GEOCODE_CACHE[address] = coords
+            return coords
     except requests.exceptions.RequestException as e:
         logger.error(f"Network error geocoding '{address}': {e}")
     except Exception as e:
         logger.error(f"Unexpected error geocoding '{address}': {e}", exc_info=True)
-    
+
     logger.warning(f"Geocoding failed for: {address}")
     return None
 
+
 def _geocode_all(addresses: list) -> list:
     """Sequential geocoding — Nominatim enforces max 1 req/sec."""
-    results = []
-    for addr in addresses:
-        results.append(_geocode_single(addr))
-    return results
+    return [_geocode_single(addr) for addr in addresses]
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
