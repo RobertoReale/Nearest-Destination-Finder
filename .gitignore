@@ -27,6 +27,8 @@ env/
 config.json
 # Tile cache — can be large, regenerated automatically
 .map_cache.db
+# Runtime log — written to project root, never commit
+app.log
 
 # OS
 .DS_Store
