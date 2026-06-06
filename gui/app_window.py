@@ -314,7 +314,7 @@ class AppWindow(ctk.CTk):
         csv_bar.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(csv_bar, text="Import CSV",
                       command=self.import_csv).grid(row=0, column=0, sticky="ew", padx=(0, 3))
-        ctk.CTkButton(csv_bar, text="Export CSV",
+        ctk.CTkButton(csv_bar, text="Export Destinations",
                       command=self.export_destinations_csv).grid(row=0, column=1, sticky="ew", padx=(3, 0))
 
         # Destination list
@@ -756,8 +756,6 @@ class AppWindow(ctk.CTk):
                 transport_mode = self.transport_var.get()
                 dep_str = self.departure_var.get().strip()
                 round_trip = self.round_trip_var.get()
-                unit_pref = self.unit_var.get()
-                
                 history_manager.add_run(
                     origin=origin,
                     destinations=destinations,
@@ -768,7 +766,6 @@ class AppWindow(ctk.CTk):
                     round_trip=round_trip,
                     response=response,
                     is_tsp=is_tsp,
-                    unit_pref=unit_pref
                 )
                 self.rebuild_history_list()
             except Exception as e:
@@ -1079,15 +1076,15 @@ class AppWindow(ctk.CTk):
                             self.map_widget.set_path([origin_coords, dest_c], color=color, width=3)
                             
             # Add markers for destinations in matched color
-            for res in run.get("results", []):
+            for rank, res in enumerate(run.get("results", []), start=1):
                 dest_coords = res.get("dest_coords")
                 if dest_coords:
                     all_coords.append(dest_coords)
                     # Check if it overlaps with origin
                     if origin_coords and (abs(dest_coords[0] - origin_coords[0]) < 1e-7 and abs(dest_coords[1] - origin_coords[1]) < 1e-7):
                         continue
-                    
-                    label_text = str(res.get("step")) if run.get("is_tsp") else "D"
+
+                    label_text = str(res.get("step")) if run.get("is_tsp") else str(rank)
                     p = self.map_widget.set_marker(
                         dest_coords[0], dest_coords[1],
                         text=f"{run['name'][:10]} - {res['destination'][:20]}",
