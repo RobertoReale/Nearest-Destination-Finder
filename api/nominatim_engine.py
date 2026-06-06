@@ -6,6 +6,9 @@ _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _HEADERS = {"User-Agent": "nearest-destination-finder/1.0"}
 
 
+from functools import lru_cache
+
+@lru_cache(maxsize=1024)
 def _geocode_single(address: str):
     try:
         r = requests.get(
@@ -36,7 +39,7 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat, dlon = lat2 - lat1, lon2 - lon1
     a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-    return 2 * 6371.0 * asin(sqrt(a))
+    return 2 * 6371.0 * asin(sqrt(min(1.0, a)))
 
 
 def _fmt_dist(km: float) -> str:

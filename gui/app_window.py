@@ -352,7 +352,7 @@ class AppWindow(ctk.CTk):
                     polyline_path = pl.decode(response["polyline"])
                 except ImportError:
                     pass
-            if polyline_path:
+            if polyline_path and len(polyline_path) >= 2:
                 self.current_polyline = self.map_widget.set_path(polyline_path)
 
         else:

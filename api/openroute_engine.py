@@ -77,20 +77,44 @@ def get_distance_matrix(api_key, origin, destinations):
         durations = response['durations'][0]
 
         results = []
-        for i, dest in enumerate(valid_destinations):
-            dist_val = distances[i]
-            dur_val = durations[i]
-            if dist_val is not None and dur_val is not None:
-                dist_text, dur_text = _format_distance_duration(dist_val, dur_val)
+        valid_idx = 0
+        for i, dest in enumerate(destinations):
+            coords = all_coords[i + 1]
+            if not coords:
                 results.append({
                     "destination": dest,
                     "original_destination": dest,
-                    "distance_text": dist_text,
-                    "distance_value": dist_val,
-                    "duration_text": dur_text,
-                    "duration_value": dur_val,
-                    "dest_coords": (valid_dest_coords[i][1], valid_dest_coords[i][0])  # (lat, lon)
+                    "distance_text": "N/A",
+                    "distance_value": float('inf'),
+                    "duration_text": "N/A",
+                    "duration_value": float('inf'),
+                    "error": "Geocoding failed"
                 })
+            else:
+                dist_val = distances[valid_idx]
+                dur_val = durations[valid_idx]
+                if dist_val is not None and dur_val is not None:
+                    dist_text, dur_text = _format_distance_duration(dist_val, dur_val)
+                    results.append({
+                        "destination": dest,
+                        "original_destination": dest,
+                        "distance_text": dist_text,
+                        "distance_value": dist_val,
+                        "duration_text": dur_text,
+                        "duration_value": dur_val,
+                        "dest_coords": (valid_dest_coords[valid_idx][1], valid_dest_coords[valid_idx][0])
+                    })
+                else:
+                    results.append({
+                        "destination": dest,
+                        "original_destination": dest,
+                        "distance_text": "N/A",
+                        "distance_value": float('inf'),
+                        "duration_text": "N/A",
+                        "duration_value": float('inf'),
+                        "error": "Unreachable"
+                    })
+                valid_idx += 1
 
         results.sort(key=lambda x: x['distance_value'])
 
