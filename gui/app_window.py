@@ -6,6 +6,12 @@ from tkinter import filedialog, messagebox
 from datetime import datetime
 import sys
 
+try:
+    import polyline as _polyline_lib
+    _HAS_POLYLINE = True
+except ImportError:
+    _HAS_POLYLINE = False
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.components import DestinationList, ResultCard
@@ -501,12 +507,8 @@ class AppWindow(ctk.CTk):
                     self.current_pins.append(p)
 
             polyline_path = response.get("polyline_path")
-            if not polyline_path and response.get("polyline"):
-                try:
-                    import polyline as pl
-                    polyline_path = pl.decode(response["polyline"])
-                except ImportError:
-                    pass
+            if not polyline_path and response.get("polyline") and _HAS_POLYLINE:
+                polyline_path = _polyline_lib.decode(response["polyline"])
             if polyline_path and len(polyline_path) >= 2:
                 self.current_polyline = self.map_widget.set_path(polyline_path)
 
