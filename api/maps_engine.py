@@ -28,7 +28,6 @@ def _geocode_single(gmaps, address):
             return coords
     except Exception:
         pass
-    _GEOCODE_CACHE[address] = None
     return None
 
 

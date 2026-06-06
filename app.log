@@ -1,6 +1,0 @@
-2026-06-06 02:51:40,216 - app_logger - INFO - Starting Nearest Destination Finder
-2026-06-06 02:52:03,167 - app_logger.nominatim - INFO - Geocoding address via Nominatim: via luiigi varanini 26 Milano
-2026-06-06 02:52:03,972 - app_logger.nominatim - WARNING - Geocoding failed for: via luiigi varanini 26 Milano
-2026-06-06 02:52:05,073 - app_logger.nominatim - INFO - Geocoding address via Nominatim: Piazza Gabriele D'Annunzio 31 Napoli
-2026-06-06 02:52:05,729 - app_logger.nominatim - ERROR - Distance matrix failed: Could not geocode origin 'via luiigi varanini 26 Milano'
-2026-06-06 02:52:16,029 - app_logger.nominatim - INFO - Geocoding address via Nominatim: via luigi varanini 26 Milano
