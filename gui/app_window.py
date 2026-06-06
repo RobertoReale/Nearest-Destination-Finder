@@ -756,6 +756,7 @@ class AppWindow(ctk.CTk):
                 transport_mode = self.transport_var.get()
                 dep_str = self.departure_var.get().strip()
                 round_trip = self.round_trip_var.get()
+                unit_pref = self.unit_var.get()
                 history_manager.add_run(
                     origin=origin,
                     destinations=destinations,
@@ -766,6 +767,7 @@ class AppWindow(ctk.CTk):
                     round_trip=round_trip,
                     response=response,
                     is_tsp=is_tsp,
+                    unit_pref=unit_pref,
                 )
                 self.rebuild_history_list()
             except Exception as e:
