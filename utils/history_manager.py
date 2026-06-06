@@ -27,7 +27,7 @@ def save_history(history):
         return False
 
 
-def add_run(origin, destinations, provider, mode, transport_mode, departure_time_str, round_trip, response, is_tsp):
+def add_run(origin, destinations, provider, mode, transport_mode, departure_time_str, round_trip, response, is_tsp, unit_pref="Metric (km)"):
     history = load_history()
     
     # Generate unique ID
@@ -51,8 +51,20 @@ def add_run(origin, destinations, provider, mode, transport_mode, departure_time
             total_dur_val += dur_val
 
     # Format fallback total distance and duration
+    is_mi = unit_pref == "Imperial (mi)"
+    if is_mi:
+        dist_str = f"{total_dist_val * 0.000621371:.1f} mi"
+    else:
+        dist_str = f"{total_dist_val / 1000.0:.1f} km"
+
     if is_tsp:
-        total_distance = response.get("total_distance") or f"{total_dist_val / 1000.0:.1f} km"
+        # Avoid using preformatted total_distance if it's hardcoded to km
+        total_distance = response.get("total_distance")
+        if total_distance and "km" in total_distance and is_mi:
+            total_distance = dist_str
+        elif not total_distance:
+            total_distance = dist_str
+            
         total_duration = response.get("total_duration")
         if not total_duration or total_duration == "N/A":
             hours = total_dur_val // 3600
@@ -65,7 +77,7 @@ def add_run(origin, destinations, provider, mode, transport_mode, departure_time
                 total_duration = "N/A"
     else:
         suffix = " (straight-line)" if provider == "Free (Nominatim)" else ""
-        total_distance = f"{total_dist_val / 1000.0:.1f} km{suffix}"
+        total_distance = f"{dist_str}{suffix}"
         hours = total_dur_val // 3600
         minutes = (total_dur_val % 3600) // 60
         if hours > 0:
