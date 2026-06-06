@@ -32,7 +32,7 @@ def _geocode_single(gmaps, address):
     return None
 
 
-def get_distance_matrix(api_key, origin, destinations):
+def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     """Uses Google Distance Matrix API to find the distance from origin to all destinations.
     Returns results sorted by distance, each with dest_coords for map pins.
     """
@@ -41,13 +41,23 @@ def get_distance_matrix(api_key, origin, destinations):
 
     try:
         gmaps = googlemaps.Client(key=api_key)
-        now = datetime.now()
+        
+        if departure_time is None:
+            departure_time = datetime.now()
+
+        mode_map = {
+            "Driving": "driving",
+            "Walking": "walking",
+            "Bicycling": "bicycling",
+            "Transit": "transit"
+        }
+        gmaps_mode = mode_map.get(transport_mode, "driving")
 
         response = gmaps.distance_matrix(
             origins=[origin],
             destinations=destinations,
-            mode="driving",
-            departure_time=now
+            mode=gmaps_mode,
+            departure_time=departure_time
         )
 
         if response['status'] != 'OK':
@@ -109,14 +119,24 @@ def get_distance_matrix(api_key, origin, destinations):
         return {"status": "ERROR", "error_message": str(e)}
 
 
-def get_optimized_route(api_key, origin, destinations):
+def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     """Uses Google Directions API to calculate an optimized TSP route visiting all destinations."""
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for Google Maps"}
 
     try:
         gmaps = googlemaps.Client(key=api_key)
-        now = datetime.now()
+        
+        if departure_time is None:
+            departure_time = datetime.now()
+
+        mode_map = {
+            "Driving": "driving",
+            "Walking": "walking",
+            "Bicycling": "bicycling",
+            "Transit": "transit"
+        }
+        gmaps_mode = mode_map.get(transport_mode, "driving")
 
         if not destinations:
             return {"status": "ERROR", "error_message": "No destinations provided"}
@@ -129,8 +149,8 @@ def get_optimized_route(api_key, origin, destinations):
             destination=target,
             waypoints=waypoints,
             optimize_waypoints=True,
-            mode="driving",
-            departure_time=now
+            mode=gmaps_mode,
+            departure_time=departure_time
         )
 
         if not response:

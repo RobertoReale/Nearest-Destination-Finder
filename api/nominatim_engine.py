@@ -2,6 +2,9 @@ import requests
 import time
 from math import radians, cos, sin, asin, sqrt
 from functools import lru_cache
+from utils.logger import get_logger
+
+logger = get_logger("nominatim")
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _HEADERS = {"User-Agent": "nearest-destination-finder/1.0"}
@@ -17,6 +20,7 @@ def _geocode_single(address: str):
         if time_since_last < 1.1:
             time.sleep(1.1 - time_since_last)
             
+        logger.info(f"Geocoding address via Nominatim: {address}")
         r = requests.get(
             _NOMINATIM_URL,
             params={"q": address, "format": "json", "limit": 1},
@@ -28,10 +32,13 @@ def _geocode_single(address: str):
         data = r.json()
         if data:
             return (float(data[0]["lat"]), float(data[0]["lon"]))
-    except Exception:
-        pass
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error geocoding '{address}': {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error geocoding '{address}': {e}", exc_info=True)
+    
+    logger.warning(f"Geocoding failed for: {address}")
     return None
-
 
 def _geocode_all(addresses: list) -> list:
     """Sequential geocoding — Nominatim enforces max 1 req/sec."""
@@ -52,10 +59,11 @@ def _fmt_dist(km: float) -> str:
     return f"{km:.1f} km (straight-line)"
 
 
-def get_distance_matrix(api_key, origin: str, destinations: list) -> dict:
+def get_distance_matrix(api_key, origin: str, destinations: list, transport_mode="Driving", departure_time=None) -> dict:
     coords = _geocode_all([origin] + destinations)
     origin_coords = coords[0]
     if not origin_coords:
+        logger.error(f"Distance matrix failed: Could not geocode origin '{origin}'")
         return {"status": "ERROR", "error_message": f"Could not geocode origin: {origin}"}
 
     results = []
@@ -87,10 +95,11 @@ def get_distance_matrix(api_key, origin: str, destinations: list) -> dict:
     return {"status": "OK", "results": results, "origin_coords": origin_coords}
 
 
-def get_optimized_route(api_key, origin: str, destinations: list) -> dict:
+def get_optimized_route(api_key, origin: str, destinations: list, transport_mode="Driving", departure_time=None) -> dict:
     coords = _geocode_all([origin] + destinations)
     origin_coords = coords[0]
     if not origin_coords:
+        logger.error(f"Optimized route failed: Could not geocode origin '{origin}'")
         return {"status": "ERROR", "error_message": f"Could not geocode origin: {origin}"}
 
     valid_dests = []
@@ -101,6 +110,7 @@ def get_optimized_route(api_key, origin: str, destinations: list) -> dict:
             valid_coords.append(coords[i + 1])
 
     if not valid_dests:
+        logger.error("Optimized route failed: Could not geocode any destinations")
         return {"status": "ERROR", "error_message": "Could not geocode any destinations"}
 
     n = len(valid_dests)

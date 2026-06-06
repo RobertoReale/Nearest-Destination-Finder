@@ -45,12 +45,20 @@ def _geocode_all(client, addresses):
     return results
 
 
-def get_distance_matrix(api_key, origin, destinations):
+def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for OpenRouteService"}
 
     try:
         client = openrouteservice.Client(key=api_key)
+
+        mode_map = {
+            "Driving": "driving-car",
+            "Walking": "foot-walking",
+            "Bicycling": "cycling-regular",
+            "Transit": "driving-car"
+        }
+        ors_profile = mode_map.get(transport_mode, "driving-car")
 
         all_coords = _geocode_all(client, [origin] + destinations)
         origin_coords = all_coords[0]
@@ -76,7 +84,7 @@ def get_distance_matrix(api_key, origin, destinations):
             locations=locations,
             sources=[0],
             destinations=list(range(1, len(locations))),
-            profile='driving-car',
+            profile=ors_profile,
             metrics=['distance', 'duration']
         )
 
@@ -135,12 +143,20 @@ def get_distance_matrix(api_key, origin, destinations):
         return {"status": "ERROR", "error_message": str(e)}
 
 
-def get_optimized_route(api_key, origin, destinations):
+def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for OpenRouteService"}
 
     try:
         client = openrouteservice.Client(key=api_key)
+
+        mode_map = {
+            "Driving": "driving-car",
+            "Walking": "foot-walking",
+            "Bicycling": "cycling-regular",
+            "Transit": "driving-car"
+        }
+        ors_profile = mode_map.get(transport_mode, "driving-car")
 
         all_coords = _geocode_all(client, [origin] + destinations)
         origin_coords = all_coords[0]
@@ -163,7 +179,7 @@ def get_optimized_route(api_key, origin, destinations):
         if not jobs:
             return {"status": "ERROR", "error_message": "Could not geocode any destinations"}
 
-        vehicles = [{"id": 1, "profile": "driving-car", "start": origin_coords}]
+        vehicles = [{"id": 1, "profile": ors_profile, "start": origin_coords}]
 
         response = client.optimization(jobs=jobs, vehicles=vehicles)
 
@@ -200,7 +216,7 @@ def get_optimized_route(api_key, origin, destinations):
 
         dir_res = client.directions(
             coordinates=ordered_coords,
-            profile='driving-car',
+            profile=ors_profile,
             format='geojson'
         )
 

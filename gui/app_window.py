@@ -3,6 +3,7 @@ import tkintermapview
 import threading
 import os
 from tkinter import filedialog, messagebox
+from datetime import datetime
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,7 +65,7 @@ class AppWindow(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, width=300, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_columnconfigure(0, weight=1)  # allows widgets to fill width
-        self.sidebar.grid_rowconfigure(13, weight=1)    # spacer pushes Save to bottom
+        self.sidebar.grid_rowconfigure(17, weight=1)    # spacer pushes Save to bottom
 
         ctk.CTkLabel(self.sidebar, text="Settings",
                      font=ctk.CTkFont(size=20, weight="bold")).grid(
@@ -98,31 +99,48 @@ class AppWindow(ctk.CTk):
             variable=self.mode_var,
         ).grid(row=8, column=0, padx=20, pady=(5, 10), sticky="ew")
 
+        # Transport Mode
+        self.transport_var = ctk.StringVar(value=self.config.get("transport_mode", "Driving"))
+        ctk.CTkLabel(self.sidebar, text="Transport Mode:").grid(
+            row=9, column=0, padx=20, pady=(10, 0), sticky="w")
+        ctk.CTkOptionMenu(
+            self.sidebar,
+            values=["Driving", "Walking", "Bicycling", "Transit"],
+            variable=self.transport_var,
+        ).grid(row=10, column=0, padx=20, pady=(5, 10), sticky="ew")
+
+        # Departure Time
+        self.departure_var = ctk.StringVar(value="now")
+        ctk.CTkLabel(self.sidebar, text="Departure Time (YYYY-MM-DD HH:MM or 'now'):").grid(
+            row=11, column=0, padx=20, pady=(10, 0), sticky="w")
+        self.departure_entry = ctk.CTkEntry(self.sidebar, textvariable=self.departure_var)
+        self.departure_entry.grid(row=12, column=0, padx=20, pady=(5, 10), sticky="ew")
+
         # Theme
         self.theme_var = ctk.StringVar(value=self.config.get("theme", "Dark"))
         ctk.CTkLabel(self.sidebar, text="Theme:").grid(
-            row=9, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=13, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
             values=["Dark", "Light", "System"],
             variable=self.theme_var,
             command=lambda v: ctk.set_appearance_mode(v),
-        ).grid(row=10, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ).grid(row=14, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Map style
         self.map_style_var = ctk.StringVar(value=self.config.get("map_style", "Voyager"))
         ctk.CTkLabel(self.sidebar, text="Map Style:").grid(
-            row=11, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=15, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
             values=list(_TILE_SERVERS.keys()),
             variable=self.map_style_var,
             command=self._apply_map_style,
-        ).grid(row=12, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ).grid(row=16, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         ctk.CTkButton(self.sidebar, text="Save Settings",
                       command=self.save_settings).grid(
-            row=14, column=0, padx=20, pady=(0, 20), sticky="ew")
+            row=18, column=0, padx=20, pady=(0, 20), sticky="ew")
 
     def _key_row(self, parent: ctk.CTkFrame, row: int) -> tuple:
         """Returns (CTkEntry, frame) — frame can be grid_remove()'d to hide the row."""
@@ -220,6 +238,7 @@ class AppWindow(ctk.CTk):
         self.config["google_api_key"] = self.google_key_entry.get().strip()
         self.config["openrouteservice_api_key"] = self.ors_key_entry.get().strip()
         self.config["default_provider"] = self.provider_var.get()
+        self.config["transport_mode"] = self.transport_var.get()
         self.config["theme"] = self.theme_var.get()
         self.config["map_style"] = self.map_style_var.get()
         if config_manager.save_config(self.config):
@@ -257,6 +276,17 @@ class AppWindow(ctk.CTk):
         destinations = self.dest_list.get_destinations()
         provider = self.provider_var.get()
         mode = self.mode_var.get()
+        transport_mode = self.transport_var.get()
+        dep_str = self.departure_var.get().strip()
+
+        if dep_str.lower() == "now":
+            departure_time = datetime.now()
+        else:
+            try:
+                departure_time = datetime.strptime(dep_str, "%Y-%m-%d %H:%M")
+            except ValueError:
+                messagebox.showerror("Error", "Invalid departure time format. Use YYYY-MM-DD HH:MM or 'now'.")
+                return
 
         if not origin:
             messagebox.showerror("Error", "Please enter an origin address.")
@@ -290,11 +320,11 @@ class AppWindow(ctk.CTk):
 
         threading.Thread(
             target=self.run_api_request,
-            args=(provider, mode, api_key, origin, destinations),
+            args=(provider, mode, api_key, origin, destinations, transport_mode, departure_time),
             daemon=True,
         ).start()
 
-    def run_api_request(self, provider, mode, api_key, origin, destinations):
+    def run_api_request(self, provider, mode, api_key, origin, destinations, transport_mode, departure_time):
         is_tsp = mode == "Traveling Salesman (TSP)"
         if provider == "Google Maps":
             engine = maps_engine
@@ -304,9 +334,9 @@ class AppWindow(ctk.CTk):
             engine = nominatim_engine
 
         if is_tsp:
-            res = engine.get_optimized_route(api_key, origin, destinations)
+            res = engine.get_optimized_route(api_key, origin, destinations, transport_mode, departure_time)
         else:
-            res = engine.get_distance_matrix(api_key, origin, destinations)
+            res = engine.get_distance_matrix(api_key, origin, destinations, transport_mode, departure_time)
 
         self.after(0, self.display_results, res, is_tsp)
 
