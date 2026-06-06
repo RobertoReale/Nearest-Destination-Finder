@@ -52,6 +52,10 @@ def _geocode_all(addresses: list) -> list:
     return [_geocode_single(addr) for addr in addresses]
 
 
+def geocode_address(address: str):
+    return _geocode_single(address)
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat, dlon = lat2 - lat1, lon2 - lon1
@@ -99,7 +103,7 @@ def get_distance_matrix(api_key, origin: str, destinations: list, transport_mode
     return {"status": "OK", "results": results, "origin_coords": origin_coords}
 
 
-def get_optimized_route(api_key, origin: str, destinations: list, transport_mode="Driving", departure_time=None) -> dict:
+def get_optimized_route(api_key, origin: str, destinations: list, transport_mode="Driving", departure_time=None, round_trip=False) -> dict:
     coords = _geocode_all([origin] + destinations)
     origin_coords = coords[0]
     if not origin_coords:
@@ -151,7 +155,21 @@ def get_optimized_route(api_key, origin: str, destinations: list, transport_mode
         })
         prev = valid_coords[idx]
 
-    polyline_path = [origin_coords] + [valid_coords[i] for i in order]
+    if round_trip:
+        dist_km = _haversine_km(*prev, *origin_coords)
+        total_dist += dist_km
+        results.append({
+            "destination": origin,
+            "distance_text": _fmt_dist(dist_km),
+            "distance_value": dist_km * 1000,
+            "duration_text": "N/A",
+            "duration_value": float("inf"),
+            "step": len(order) + 1,
+            "dest_coords": origin_coords,
+        })
+        polyline_path = [origin_coords] + [valid_coords[i] for i in order] + [origin_coords]
+    else:
+        polyline_path = [origin_coords] + [valid_coords[i] for i in order]
 
     return {
         "status": "OK",

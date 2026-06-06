@@ -2,8 +2,9 @@ import customtkinter as ctk
 
 
 class DestinationList(ctk.CTkScrollableFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, on_enter_pressed=None, **kwargs):
         super().__init__(master, **kwargs)
+        self.on_enter_pressed = on_enter_pressed
         self.entries = []
         self.add_entry()
 
@@ -15,6 +16,9 @@ class DestinationList(ctk.CTkScrollableFrame):
         entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         if default_text:
             entry.insert(0, default_text)
+
+        if self.on_enter_pressed:
+            entry.bind("<Return>", lambda event: self.on_enter_pressed())
 
         ctk.CTkButton(row_frame, text="✕", width=30,
                       command=lambda f=row_frame, e=entry: self.remove_entry(f, e)

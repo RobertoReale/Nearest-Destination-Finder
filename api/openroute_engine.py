@@ -45,6 +45,16 @@ def _geocode_all(client, addresses):
     return results
 
 
+def geocode_address(api_key, address):
+    if not api_key:
+        return None
+    try:
+        client = openrouteservice.Client(key=api_key)
+        return _geocode_address(client, address)
+    except Exception:
+        return None
+
+
 def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for OpenRouteService"}
@@ -143,7 +153,7 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
         return {"status": "ERROR", "error_message": str(e)}
 
 
-def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
+def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None, round_trip=False):
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for OpenRouteService"}
 
@@ -179,7 +189,10 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         if not jobs:
             return {"status": "ERROR", "error_message": "Could not geocode any destinations"}
 
-        vehicles = [{"id": 1, "profile": ors_profile, "start": origin_coords}]
+        if round_trip:
+            vehicles = [{"id": 1, "profile": ors_profile, "start": origin_coords, "end": origin_coords}]
+        else:
+            vehicles = [{"id": 1, "profile": ors_profile, "start": origin_coords}]
 
         response = client.optimization(jobs=jobs, vehicles=vehicles)
 
@@ -216,6 +229,26 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
                     "duration_value": dur_val,
                     "step": len(results) + 1,
                     "dest_coords": (locations[job_id][1], locations[job_id][0])  # (lat, lon)
+                })
+            elif step['type'] == 'end' and round_trip:
+                ordered_coords.append(origin_coords)
+
+                cum_dist = step.get('distance', 0)
+                cum_dur = step.get('duration', 0)
+                dist_val = max(0, cum_dist - prev_dist)
+                dur_val = max(0, cum_dur - prev_dur)
+                prev_dist = cum_dist
+                prev_dur = cum_dur
+
+                dist_text, dur_text = _format_distance_duration(dist_val, dur_val)
+                results.append({
+                    "destination": origin,
+                    "distance_text": dist_text,
+                    "distance_value": dist_val,
+                    "duration_text": dur_text,
+                    "duration_value": dur_val,
+                    "step": len(results) + 1,
+                    "dest_coords": (origin_coords[1], origin_coords[0])  # (lat, lon)
                 })
 
         # Use route-level totals (authoritative); fall back to last cumulative values

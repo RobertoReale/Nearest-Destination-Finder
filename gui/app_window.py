@@ -5,6 +5,7 @@ import os
 from tkinter import filedialog, messagebox
 from datetime import datetime
 import sys
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 try:
     import polyline as _polyline_lib
@@ -37,6 +38,35 @@ _PROVIDER_LEGACY = {
 }
 
 
+def create_circle_marker_icon(text, bg_color="#3498db", size=28):
+    # Create an image with transparent background
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    # Main circle
+    draw.ellipse([2, 2, size - 3, size - 3], fill=bg_color, outline="white", width=2)
+    
+    # Try to load a font, fall back to default
+    try:
+        font = ImageFont.truetype("arial.ttf", 13)
+    except IOError:
+        font = ImageFont.load_default()
+        
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+    except AttributeError:
+        # Fallback for older Pillow versions
+        w, h = draw.textsize(text, font=font)
+        
+    x = (size - w) / 2
+    y = (size - h) / 2 - 1
+    draw.text((x, y), text, fill="white", font=font)
+    
+    return ImageTk.PhotoImage(img)
+
+
 class AppWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -65,9 +95,14 @@ class AppWindow(ctk.CTk):
         self.mode_var.set(self.config.get("mode", "Find Nearest"))
 
         self.current_pins = []
+        self._marker_icons = []
         self.current_polyline = None
-        self._last_results: dict | None = None
-        self._last_is_tsp: bool = False
+        self._last_results = None
+        self._last_is_tsp = False
+
+        self.origin_entry.bind("<Return>", lambda event: self.start_calculation())
+        self.departure_entry.bind("<Return>", lambda event: self.start_calculation())
+        self._on_mode_change(self.mode_var.get())
 
     # ── Sidebar ──────────────────────────────────────────────────────────────
 
@@ -75,7 +110,7 @@ class AppWindow(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, width=300, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(18, weight=1)    # spacer pushes Save to bottom
+        self.sidebar.grid_rowconfigure(21, weight=1)    # spacer pushes Save to bottom
 
         ctk.CTkLabel(self.sidebar, text="Settings",
                      font=ctk.CTkFont(size=20, weight="bold")).grid(
@@ -120,50 +155,70 @@ class AppWindow(ctk.CTk):
             self.sidebar,
             values=["Find Nearest", "Traveling Salesman (TSP)"],
             variable=self.mode_var,
-        ).grid(row=9, column=0, padx=20, pady=(5, 10), sticky="ew")
+            command=self._on_mode_change,
+        ).grid(row=9, column=0, padx=20, pady=(5, 5), sticky="ew")
+
+        # Round-trip TSP (Return to Origin) checkbox
+        self.round_trip_var = ctk.BooleanVar(value=self.config.get("round_trip", False))
+        self.round_trip_cb = ctk.CTkCheckBox(
+            self.sidebar, text="Return to Origin (Round-Trip)",
+            variable=self.round_trip_var
+        )
+        self.round_trip_cb.grid(row=10, column=0, padx=20, pady=(5, 10), sticky="w")
 
         # Transport Mode
         self.transport_var = ctk.StringVar(value=self.config.get("transport_mode", "Driving"))
         ctk.CTkLabel(self.sidebar, text="Transport Mode:").grid(
-            row=10, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=11, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
             values=["Driving", "Walking", "Bicycling", "Transit"],
             variable=self.transport_var,
-        ).grid(row=11, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ).grid(row=12, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Departure Time
         self.departure_var = ctk.StringVar(value="now")
         ctk.CTkLabel(self.sidebar, text="Departure Time (YYYY-MM-DD HH:MM or 'now'):").grid(
-            row=12, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=13, column=0, padx=20, pady=(10, 0), sticky="w")
         self.departure_entry = ctk.CTkEntry(self.sidebar, textvariable=self.departure_var)
-        self.departure_entry.grid(row=13, column=0, padx=20, pady=(5, 10), sticky="ew")
+        self.departure_entry.grid(row=14, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Theme
         self.theme_var = ctk.StringVar(value=self.config.get("theme", "Dark"))
         ctk.CTkLabel(self.sidebar, text="Theme:").grid(
-            row=14, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=15, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
             values=["Dark", "Light", "System"],
             variable=self.theme_var,
             command=lambda v: ctk.set_appearance_mode(v),
-        ).grid(row=15, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ).grid(row=16, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Map style
         self.map_style_var = ctk.StringVar(value=self.config.get("map_style", "Voyager"))
         ctk.CTkLabel(self.sidebar, text="Map Style:").grid(
-            row=16, column=0, padx=20, pady=(10, 0), sticky="w")
+            row=17, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
             values=list(_TILE_SERVERS.keys()),
             variable=self.map_style_var,
             command=self._apply_map_style,
-        ).grid(row=17, column=0, padx=20, pady=(5, 10), sticky="ew")
+        ).grid(row=18, column=0, padx=20, pady=(5, 10), sticky="ew")
+
+        # Distance Unit
+        self.unit_var = ctk.StringVar(value=self.config.get("unit", "Metric (km)"))
+        ctk.CTkLabel(self.sidebar, text="Distance Unit:").grid(
+            row=19, column=0, padx=20, pady=(10, 0), sticky="w")
+        ctk.CTkOptionMenu(
+            self.sidebar,
+            values=["Metric (km)", "Imperial (mi)"],
+            variable=self.unit_var,
+            command=self._on_unit_change,
+        ).grid(row=20, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         ctk.CTkButton(self.sidebar, text="Save Settings",
                       command=self.save_settings).grid(
-            row=19, column=0, padx=20, pady=(0, 20), sticky="ew")
+            row=22, column=0, padx=20, pady=(0, 20), sticky="ew")
 
     def _key_row(self, parent: ctk.CTkFrame, row: int) -> tuple:
         """Returns (CTkEntry, frame) — frame can be grid_remove()'d to hide the row."""
@@ -249,13 +304,23 @@ class AppWindow(ctk.CTk):
                       command=self.export_destinations_csv).grid(row=0, column=1, sticky="ew", padx=(3, 0))
 
         # Destination list
-        self.dest_list = DestinationList(self.left_panel, height=200)
+        self.dest_list = DestinationList(self.left_panel, height=200, on_enter_pressed=self.start_calculation)
         self.dest_list.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
 
-        # Calculate button
-        self.btn_calculate = ctk.CTkButton(self.left_panel, text="Calculate Routes",
+        # Calculate / Validate button bar
+        calc_bar = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        calc_bar.grid(row=5, column=0, padx=10, pady=10, sticky="ew")
+        calc_bar.grid_columnconfigure(0, weight=3)
+        calc_bar.grid_columnconfigure(1, weight=2)
+
+        self.btn_calculate = ctk.CTkButton(calc_bar, text="Calculate Routes",
                                            command=self.start_calculation)
-        self.btn_calculate.grid(row=5, column=0, padx=10, pady=10, sticky="ew")
+        self.btn_calculate.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+
+        self.btn_validate = ctk.CTkButton(calc_bar, text="Validate Addresses",
+                                          command=self.start_validation,
+                                          fg_color="gray50", hover_color="gray60")
+        self.btn_validate.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
         # Results header: label + Export Results button
         results_header = ctk.CTkFrame(self.left_panel, fg_color="transparent")
@@ -298,6 +363,8 @@ class AppWindow(ctk.CTk):
         self.config["mode"] = self.mode_var.get()
         self.config["theme"] = self.theme_var.get()
         self.config["map_style"] = self.map_style_var.get()
+        self.config["unit"] = self.unit_var.get()
+        self.config["round_trip"] = self.round_trip_var.get()
         if config_manager.save_config(self.config):
             messagebox.showinfo("Settings Saved", "Settings saved successfully.")
         else:
@@ -342,9 +409,26 @@ class AppWindow(ctk.CTk):
         if not file_path:
             return
         results = self._last_results.get("results", [])
+        
+        # Format results for CSV
+        formatted_results = []
+        for r in results:
+            formatted_r = r.copy()
+            if not r.get("error") and "distance_value" in r:
+                formatted_r["distance_text"] = self._format_distance(r["distance_value"])
+            formatted_results.append(formatted_r)
+            
+        # Calculate total distance
+        total_dist_val = sum(
+            r.get("distance_value", 0)
+            for r in results
+            if r.get("distance_value") is not None and r.get("distance_value") != float('inf')
+        )
+        total_dist_text = self._format_distance(total_dist_val)
+
         ok = data_importer.export_results_to_csv(
-            file_path, results, self._last_is_tsp,
-            total_distance=self._last_results.get("total_distance", ""),
+            file_path, formatted_results, self._last_is_tsp,
+            total_distance=total_dist_text,
             total_duration=self._last_results.get("total_duration", ""),
         )
         if ok:
@@ -360,6 +444,7 @@ class AppWindow(ctk.CTk):
 
     def clear_map(self):
         self.current_pins.clear()
+        self._marker_icons.clear()
         self.current_polyline = None
         self.map_widget.delete_all_marker()
         self.map_widget.delete_all_path()
@@ -397,12 +482,14 @@ class AppWindow(ctk.CTk):
     # ── Calculation flow ──────────────────────────────────────────────────────
 
     def start_calculation(self):
+        self._reset_entry_borders()
         origin = self.origin_entry.get().strip()
         destinations = self.dest_list.get_destinations()
         provider = self.provider_var.get()
         mode = self.mode_var.get()
         transport_mode = self.transport_var.get()
         dep_str = self.departure_var.get().strip()
+        round_trip = self.round_trip_var.get()
 
         if dep_str.lower() == "now":
             departure_time = datetime.now()
@@ -447,11 +534,11 @@ class AppWindow(ctk.CTk):
 
         threading.Thread(
             target=self.run_api_request,
-            args=(provider, mode, api_key, origin, destinations, transport_mode, departure_time),
+            args=(provider, mode, api_key, origin, destinations, transport_mode, departure_time, round_trip),
             daemon=True,
         ).start()
 
-    def run_api_request(self, provider, mode, api_key, origin, destinations, transport_mode, departure_time):
+    def run_api_request(self, provider, mode, api_key, origin, destinations, transport_mode, departure_time, round_trip):
         is_tsp = mode == "Traveling Salesman (TSP)"
         if provider == "Google Maps":
             engine = maps_engine
@@ -461,7 +548,7 @@ class AppWindow(ctk.CTk):
             engine = nominatim_engine
 
         if is_tsp:
-            res = engine.get_optimized_route(api_key, origin, destinations, transport_mode, departure_time)
+            res = engine.get_optimized_route(api_key, origin, destinations, transport_mode, departure_time, round_trip=round_trip)
         else:
             res = engine.get_distance_matrix(api_key, origin, destinations, transport_mode, departure_time)
 
@@ -469,6 +556,7 @@ class AppWindow(ctk.CTk):
 
     def display_results(self, response, is_tsp):
         self.clear_results()
+        self.clear_map()
         self.btn_calculate.configure(state="normal", text="Calculate Routes")
 
         if response.get("status") == "ERROR":
@@ -484,26 +572,40 @@ class AppWindow(ctk.CTk):
 
         if origin_coords:
             all_coords.append(origin_coords)
-            p = self.map_widget.set_marker(origin_coords[0], origin_coords[1],
-                                           text="Origin", marker_color_outside="green")
+            p = self.map_widget.set_marker(
+                origin_coords[0], origin_coords[1],
+                text="Origin",
+                icon=self.get_marker_icon("S", bg_color="#2e7d32")
+            )
             self.current_pins.append(p)
 
         if is_tsp:
-            tot_dist = response.get("total_distance", "N/A")
+            total_dist_val = sum(
+                r.get("distance_value", 0)
+                for r in results
+                if r.get("distance_value") is not None and r.get("distance_value") != float('inf')
+            )
+            tot_dist = self._format_distance(total_dist_val)
             tot_dur = response.get("total_duration", "N/A")
             ctk.CTkLabel(self.results_area,
                          text=f"Total trip: {tot_dist} — {tot_dur}",
                          font=ctk.CTkFont(weight="bold")).pack(pady=5)
 
             for res in results:
+                dist_text = self._format_distance(res.get("distance_value")) if not res.get("error") else ""
                 ResultCard(self.results_area, res["destination"],
-                           res["distance_text"], res["duration_text"],
+                           dist_text, res["duration_text"],
                            step=res.get("step")).pack(fill="x", pady=2, padx=2)
                 dest_coords = res.get("dest_coords")
                 if dest_coords:
                     all_coords.append(dest_coords)
-                    p = self.map_widget.set_marker(dest_coords[0], dest_coords[1],
-                                                   text=f"Stop {res.get('step', '')}")
+                    if origin_coords and (abs(dest_coords[0] - origin_coords[0]) < 1e-7 and abs(dest_coords[1] - origin_coords[1]) < 1e-7):
+                        continue
+                    p = self.map_widget.set_marker(
+                        dest_coords[0], dest_coords[1],
+                        text=f"Stop {res.get('step', '')}",
+                        icon=self.get_marker_icon(str(res.get("step", "")))
+                    )
                     self.current_pins.append(p)
 
             polyline_path = response.get("polyline_path")
@@ -513,20 +615,26 @@ class AppWindow(ctk.CTk):
                 self.current_polyline = self.map_widget.set_path(polyline_path)
 
         else:
-            for res in results:
+            for i, res in enumerate(results):
                 if res.get("error"):
                     error_text = res.get("error", "Calculation error")
                     ResultCard(self.results_area, res["destination"], "", "",
                                is_error=True, error_text=error_text).pack(fill="x", pady=2, padx=2)
                 else:
+                    dist_text = self._format_distance(res.get("distance_value"))
                     ResultCard(self.results_area, res["destination"],
-                               res["distance_text"], res["duration_text"]).pack(
+                               dist_text, res["duration_text"]).pack(
                         fill="x", pady=2, padx=2)
                     dest_coords = res.get("dest_coords")
                     if dest_coords:
                         all_coords.append(dest_coords)
-                        p = self.map_widget.set_marker(dest_coords[0], dest_coords[1],
-                                                       text=res["destination"][:30])
+                        if origin_coords and (abs(dest_coords[0] - origin_coords[0]) < 1e-7 and abs(dest_coords[1] - origin_coords[1]) < 1e-7):
+                            continue
+                        p = self.map_widget.set_marker(
+                            dest_coords[0], dest_coords[1],
+                            text=res["destination"][:30],
+                            icon=self.get_marker_icon(str(i + 1))
+                        )
                         self.current_pins.append(p)
 
         valid_count = sum(1 for r in results if not r.get("error"))
@@ -536,3 +644,137 @@ class AppWindow(ctk.CTk):
             self.btn_export_results.configure(state="normal")
 
         self._fit_map_to_coords(all_coords)
+
+    # ── Custom helpers & validation ───────────────────────────────────────────
+
+    def get_marker_icon(self, text, bg_color="#3498db"):
+        icon = create_circle_marker_icon(text, bg_color)
+        self._marker_icons.append(icon)
+        return icon
+
+    def _format_distance(self, meters):
+        if meters is None or meters == float('inf') or isinstance(meters, str):
+            return "N/A"
+        is_mi = self.unit_var.get() == "Imperial (mi)"
+        provider = self.provider_var.get()
+        is_straight = provider == "Free (Nominatim)"
+        
+        if is_mi:
+            val = meters * 0.000621371
+            suffix = " mi"
+        else:
+            val = meters / 1000.0
+            suffix = " km"
+            
+        if is_straight:
+            suffix += " (straight-line)"
+            
+        return f"{val:.1f}{suffix}"
+
+    def _on_unit_change(self, value):
+        if self._last_results:
+            self.display_results(self._last_results, self._last_is_tsp)
+
+    def _on_mode_change(self, mode):
+        if mode == "Traveling Salesman (TSP)":
+            self.round_trip_cb.configure(state="normal")
+        else:
+            self.round_trip_cb.configure(state="disabled")
+            self.round_trip_var.set(False)
+
+    def _reset_entry_borders(self):
+        self.origin_entry.configure(border_color=["#979DA2", "#565B5E"])
+        for entry in self.dest_list.entries:
+            entry.configure(border_color=["#979DA2", "#565B5E"])
+
+    def start_validation(self):
+        provider = self.provider_var.get()
+        if provider == "Google Maps":
+            api_key = self.google_key_entry.get().strip()
+            if not api_key:
+                messagebox.showerror("Error", "Please enter a Google API Key for validation.")
+                return
+        elif provider == "OpenRouteService":
+            api_key = self.ors_key_entry.get().strip()
+            if not api_key:
+                messagebox.showerror("Error", "Please enter an OpenRouteService API Key for validation.")
+                return
+        else:
+            api_key = None
+
+        origin = self.origin_entry.get().strip()
+        destinations = self.dest_list.get_destinations()
+
+        self.btn_validate.configure(state="disabled", text="Validating...")
+        self.btn_calculate.configure(state="disabled")
+        self._reset_entry_borders()
+
+        threading.Thread(
+            target=self.run_validation,
+            args=(provider, api_key, origin, destinations),
+            daemon=True
+        ).start()
+
+    def run_validation(self, provider, api_key, origin, destinations):
+        if provider == "Google Maps":
+            engine = maps_engine
+        elif provider == "OpenRouteService":
+            engine = openroute_engine
+        else:
+            engine = nominatim_engine
+
+        origin_ok = False
+        if origin:
+            coords = self._geocode_via_engine(engine, api_key, origin)
+            origin_ok = coords is not None
+
+        dest_results = []
+        for entry in self.dest_list.entries:
+            addr = entry.get().strip()
+            if not addr:
+                dest_results.append((entry, None))
+            else:
+                coords = self._geocode_via_engine(engine, api_key, addr)
+                dest_results.append((entry, coords is not None))
+
+        self.after(0, self.finish_validation, origin_ok, dest_results)
+
+    def _geocode_via_engine(self, engine, api_key, address):
+        if engine == nominatim_engine:
+            return engine.geocode_address(address)
+        else:
+            return engine.geocode_address(api_key, address)
+
+    def finish_validation(self, origin_ok, dest_results):
+        self.btn_validate.configure(state="normal", text="Validate Addresses")
+        self.btn_calculate.configure(state="normal")
+
+        if self.origin_entry.get().strip():
+            if origin_ok:
+                self.origin_entry.configure(border_color=["#2ecc71", "#27ae60"])
+            else:
+                self.origin_entry.configure(border_color=["#e74c3c", "#c0392b"])
+        else:
+            self.origin_entry.configure(border_color=["#979DA2", "#565B5E"])
+
+        valid_count = 0
+        invalid_count = 0
+
+        for entry, is_valid in dest_results:
+            if is_valid is None:
+                entry.configure(border_color=["#979DA2", "#565B5E"])
+            elif is_valid:
+                entry.configure(border_color=["#2ecc71", "#27ae60"])
+                valid_count += 1
+            else:
+                entry.configure(border_color=["#e74c3c", "#c0392b"])
+                invalid_count += 1
+
+        origin_entered = bool(self.origin_entry.get().strip())
+        origin_status = "Origin is valid." if (origin_entered and origin_ok) else ("Origin is invalid!" if origin_entered else "Origin is empty.")
+        msg = f"{origin_status}\nDestinations: {valid_count} valid, {invalid_count} invalid."
+
+        if invalid_count > 0 or (origin_entered and not origin_ok):
+            messagebox.showwarning("Validation Results", f"Some addresses failed validation:\n\n{msg}")
+        else:
+            messagebox.showinfo("Validation Results", f"All addresses are valid!\n\n{msg}")

@@ -32,6 +32,16 @@ def _geocode_single(gmaps, address):
     return None
 
 
+def geocode_address(api_key, address):
+    if not api_key:
+        return None
+    try:
+        gmaps = googlemaps.Client(key=api_key)
+        return _geocode_single(gmaps, address)
+    except Exception:
+        return None
+
+
 def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
     """Uses Google Distance Matrix API to find the distance from origin to all destinations.
     Returns results sorted by distance, each with dest_coords for map pins.
@@ -119,7 +129,7 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
         return {"status": "ERROR", "error_message": str(e)}
 
 
-def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None):
+def get_optimized_route(api_key, origin, destinations, transport_mode="Driving", departure_time=None, round_trip=False):
     """Uses Google Directions API to calculate an optimized TSP route visiting all destinations."""
     if not api_key:
         return {"status": "ERROR", "error_message": "Missing API Key for Google Maps"}
@@ -141,8 +151,12 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         if not destinations:
             return {"status": "ERROR", "error_message": "No destinations provided"}
 
-        target = destinations[-1]
-        waypoints = destinations[:-1]
+        if round_trip:
+            target = origin
+            waypoints = destinations
+        else:
+            target = destinations[-1]
+            waypoints = destinations[:-1]
 
         response = gmaps.directions(
             origin=origin,

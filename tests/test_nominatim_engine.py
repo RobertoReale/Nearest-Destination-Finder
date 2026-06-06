@@ -82,3 +82,36 @@ def test_get_distance_matrix_origin_failure():
     result = get_distance_matrix(None, "Nowhere", ["Naples"])
     assert result["status"] == "ERROR"
     assert "Could not geocode origin" in result["error_message"]
+
+@responses.activate
+def test_geocode_address_success():
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "41.9028", "lon": "12.4964"}],
+        status=200
+    )
+    from api.nominatim_engine import geocode_address
+    result = geocode_address("Rome")
+    assert result == (41.9028, 12.4964)
+
+@responses.activate
+def test_get_optimized_route_round_trip():
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "41.9028", "lon": "12.4964"}],
+        status=200
+    )
+    responses.add(
+        responses.GET,
+        "https://nominatim.openstreetmap.org/search",
+        json=[{"lat": "40.8518", "lon": "14.2681"}],
+        status=200
+    )
+
+    result = get_optimized_route(None, "Rome", ["Naples"], round_trip=True)
+    assert result["status"] == "OK"
+    assert len(result["results"]) == 2  # Naples + return to Rome
+    assert result["results"][0]["destination"] == "Naples"
+    assert result["results"][1]["destination"] == "Rome"
