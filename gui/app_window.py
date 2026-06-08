@@ -7,11 +7,11 @@ from datetime import datetime
 import sys
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-_polyline_lib = None
 try:
-    import polyline as _polyline_lib
+    import polyline as _polyline_lib  # type: ignore
     _HAS_POLYLINE = True
 except ImportError:
+    _polyline_lib = None  # type: ignore
     _HAS_POLYLINE = False
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
