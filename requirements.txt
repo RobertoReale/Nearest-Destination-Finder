@@ -4,3 +4,6 @@ googlemaps>=4.10.0
 openrouteservice>=2.3.3
 polyline>=2.0.0
 requests>=2.28.0
+streamlit>=1.32.0
+streamlit-folium>=0.18.0
+folium>=0.16.0
