@@ -78,12 +78,14 @@ def add_run(origin, destinations, provider, mode, transport_mode, departure_time
     else:
         suffix = " (straight-line)" if provider == "Free (Nominatim)" else ""
         total_distance = f"{dist_str}{suffix}"
-        hours = total_dur_val // 3600
-        minutes = (total_dur_val % 3600) // 60
+        hours = int(total_dur_val // 3600)
+        minutes = int((total_dur_val % 3600) // 60)
         if hours > 0:
             total_duration = f"{hours} h {minutes} min"
-        else:
+        elif minutes > 0:
             total_duration = f"{minutes} min"
+        else:
+            total_duration = "N/A"
 
     # Auto-generate a descriptive run name
     timestamp_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

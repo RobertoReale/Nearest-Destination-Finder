@@ -151,7 +151,7 @@ class ResultCard(ctk.CTkFrame):
         header_text = f"Stop {step}: {destination}" if step is not None else destination
         ctk.CTkLabel(self, text=header_text,
                      font=ctk.CTkFont(size=13, weight="bold"),
-                     anchor="w", justify="left", wraplength=280).pack(
+                     anchor="w", justify="left", wraplength=400).pack(
             fill="x", padx=10, pady=(8, 2))
 
         if is_error:

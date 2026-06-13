@@ -182,7 +182,8 @@ class AppWindow(ctk.CTk):
 
         # Departure Time
         self.departure_var = ctk.StringVar(value="now")
-        ctk.CTkLabel(self.sidebar, text="Departure Time (YYYY-MM-DD HH:MM or 'now'):").grid(
+        ctk.CTkLabel(self.sidebar, text="Departure Time (YYYY-MM-DD HH:MM or 'now'):",
+                     wraplength=240, anchor="w", justify="left").grid(
             row=13, column=0, padx=20, pady=(10, 0), sticky="w")
         self.departure_entry = ctk.CTkEntry(self.sidebar, textvariable=self.departure_var)
         self.departure_entry.grid(row=14, column=0, padx=20, pady=(5, 10), sticky="ew")
@@ -666,7 +667,7 @@ class AppWindow(ctk.CTk):
 
         self.after(0, self.display_results, res, is_tsp)
 
-    def display_results(self, response, is_tsp):
+    def display_results(self, response, is_tsp, save_to_history=True):
         self.clear_results()
         self.clear_map()
         self.btn_calculate.configure(state="normal", text="Calculate Routes")
@@ -754,32 +755,32 @@ class AppWindow(ctk.CTk):
 
         if valid_count > 0:
             self.btn_export_results.configure(state="normal")
-            
-            # Save this run to history
-            try:
-                origin = self.origin_entry.get().strip()
-                destinations = self.dest_list.get_destinations_with_settings()
-                provider = self.provider_var.get()
-                mode = self.mode_var.get()
-                transport_mode = self.transport_var.get()
-                dep_str = self.departure_var.get().strip()
-                round_trip = self.round_trip_var.get()
-                unit_pref = self.unit_var.get()
-                history_manager.add_run(
-                    origin=origin,
-                    destinations=destinations,
-                    provider=provider,
-                    mode=mode,
-                    transport_mode=transport_mode,
-                    departure_time_str=dep_str,
-                    round_trip=round_trip,
-                    response=response,
-                    is_tsp=is_tsp,
-                    unit_pref=unit_pref,
-                )
-                self.rebuild_history_list()
-            except Exception as e:
-                print(f"Error saving run to history: {e}")
+
+            if save_to_history:
+                try:
+                    origin = self.origin_entry.get().strip()
+                    destinations = self.dest_list.get_destinations_with_settings()
+                    provider = self.provider_var.get()
+                    mode = self.mode_var.get()
+                    transport_mode = self.transport_var.get()
+                    dep_str = self.departure_var.get().strip()
+                    round_trip = self.round_trip_var.get()
+                    unit_pref = self.unit_var.get()
+                    history_manager.add_run(
+                        origin=origin,
+                        destinations=destinations,
+                        provider=provider,
+                        mode=mode,
+                        transport_mode=transport_mode,
+                        departure_time_str=dep_str,
+                        round_trip=round_trip,
+                        response=response,
+                        is_tsp=is_tsp,
+                        unit_pref=unit_pref,
+                    )
+                    self.rebuild_history_list()
+                except Exception as e:
+                    print(f"Error saving run to history: {e}")
 
         self._fit_map_to_coords(all_coords)
 
@@ -811,7 +812,13 @@ class AppWindow(ctk.CTk):
 
     def _on_unit_change(self, value):
         if self._last_results:
-            self.display_results(self._last_results, self._last_is_tsp)
+            self.display_results(self._last_results, self._last_is_tsp, save_to_history=False)
+        # Refresh comparison dashboard if any runs are checked
+        checked_ids = [run_id for run_id, var in self.checked_run_vars.items() if var.get()]
+        if checked_ids:
+            history = history_manager.load_history()
+            checked_runs = [item for item in history if item.get("id") in checked_ids]
+            self.update_comparison_dashboard(checked_runs)
 
     def _on_mode_change(self, mode):
         if mode == "Traveling Salesman (TSP)":

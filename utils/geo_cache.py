@@ -2,6 +2,7 @@ import sqlite3
 import os
 import json
 import sys
+from contextlib import closing
 
 _DB_NAME = ".geo_cache_test.db" if "pytest" in sys.modules else ".geo_cache.db"
 _DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), _DB_NAME)
@@ -14,7 +15,7 @@ def _get_conn():
 
 def get_cached_coords(address: str):
     try:
-        with _get_conn() as conn:
+        with closing(_get_conn()) as conn:
             cursor = conn.execute("SELECT coords FROM geocode WHERE address=?", (address,))
             row = cursor.fetchone()
             if row:
@@ -27,8 +28,8 @@ def set_cached_coords(address: str, coords):
     if coords is None:
         return
     try:
-        with _get_conn() as conn:
-            conn.execute("INSERT OR REPLACE INTO geocode (address, coords) VALUES (?, ?)", 
+        with closing(_get_conn()) as conn:
+            conn.execute("INSERT OR REPLACE INTO geocode (address, coords) VALUES (?, ?)",
                          (address, json.dumps(coords)))
             conn.commit()
     except Exception:
