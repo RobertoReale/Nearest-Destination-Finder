@@ -99,7 +99,10 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
                     "error": element['status']
                 })
 
-        results.sort(key=lambda x: x['distance_value'])
+        if transport_mode == "Transit":
+            results.sort(key=lambda x: x.get('duration_value', float('inf')))
+        else:
+            results.sort(key=lambda x: x.get('distance_value', float('inf')))
 
         # Geocode origin + all valid destinations in parallel for map pins
         valid_results = [r for r in results if not r.get("error")]

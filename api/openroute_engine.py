@@ -145,7 +145,10 @@ def get_distance_matrix(api_key, origin, destinations, transport_mode="Driving",
                     })
                 valid_idx += 1
 
-        results.sort(key=lambda x: x['distance_value'])
+        if transport_mode == "Transit":
+            results.sort(key=lambda x: x.get('duration_value', float('inf')))
+        else:
+            results.sort(key=lambda x: x.get('distance_value', float('inf')))
 
         return {
             "status": "OK",

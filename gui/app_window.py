@@ -654,7 +654,10 @@ class AppWindow(ctk.CTk):
                                 "error": "No results returned"
                             })
                             
-                overall_results.sort(key=lambda x: x.get("distance_value", float('inf')))
+                if transport_mode == "Transit":
+                    overall_results.sort(key=lambda x: x.get("duration_value", float('inf')))
+                else:
+                    overall_results.sort(key=lambda x: x.get("distance_value", float('inf')))
                 res = {
                     "status": "OK",
                     "results": overall_results,
