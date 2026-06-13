@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import openrouteservice
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -181,9 +183,9 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         if not origin_coords:
             return {"status": "ERROR", "error_message": f"Could not geocode origin: {origin}"}
 
-        jobs = []
-        locations = []
-        valid_destinations = []
+        jobs: list[dict] = []
+        locations: list = []
+        valid_destinations: list[str] = []
 
         for i, dest in enumerate(destinations):
             coords = all_coords[i + 1]
@@ -213,7 +215,7 @@ def get_optimized_route(api_key, origin, destinations, transport_mode="Driving",
         route_steps = route_obj['steps']
 
         ordered_coords = [origin_coords]
-        results = []
+        results: list[dict] = []
         # VROOM step durations/distances are cumulative from route start; compute per-leg deltas
         prev_dist = 0
         prev_dur = 0

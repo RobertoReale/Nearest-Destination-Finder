@@ -3,6 +3,8 @@ Nearest Destination Finder — Streamlit Web Interface
 Run locally:  streamlit run web_app.py
 Deploy:       share.streamlit.io  →  select this file  →  get public link
 """
+from __future__ import annotations
+
 import csv
 import io
 import os
@@ -33,7 +35,7 @@ _ORS_UNSUPPORTED = {"Transit"}
 # ── State ─────────────────────────────────────────────────────────────────────
 
 def _init():
-    defaults = {
+    defaults: dict[str, object] = {
         "n_dests": 3,
         "results": None,
         "error": None,
