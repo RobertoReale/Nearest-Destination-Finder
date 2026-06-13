@@ -2,6 +2,7 @@ import customtkinter as ctk
 import tkintermapview
 import threading
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tkinter import filedialog, messagebox
 from datetime import datetime
 import sys
@@ -15,6 +16,18 @@ except ImportError:
     _HAS_POLYLINE = False
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def _load_marker_font():
+    try:
+        return ImageFont.truetype("arial.ttf", 13)
+    except (IOError, OSError):
+        try:
+            return ImageFont.load_default(size=13)
+        except TypeError:
+            return ImageFont.load_default()
+
+_FONT = _load_marker_font()
+_ICON_CACHE: dict = {}
 
 from gui.components import DestinationList, ResultCard
 from utils import config_manager, data_importer, history_manager
@@ -40,32 +53,25 @@ _PROVIDER_LEGACY = {
 
 
 def create_circle_marker_icon(text, bg_color="#3498db", size=28):
-    # Create an image with transparent background
+    key = (text, bg_color, size)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    
-    # Main circle
     draw.ellipse([2, 2, size - 3, size - 3], fill=bg_color, outline="white", width=2)
-    
-    # Try to load a font, fall back to default
-    try:
-        font = ImageFont.truetype("arial.ttf", 13)
-    except IOError:
-        font = ImageFont.load_default()
-        
+    font = _FONT
     try:
         bbox = draw.textbbox((0, 0), text, font=font)
         w = bbox[2] - bbox[0]
         h = bbox[3] - bbox[1]
     except AttributeError:
-        # Fallback for older Pillow versions
         w, h = getattr(draw, 'textsize')(text, font=font)
-        
     x = (size - w) / 2
     y = (size - h) / 2 - 1
     draw.text((x, y), text, fill="white", font=font)
-    
-    return ImageTk.PhotoImage(img)
+    icon = ImageTk.PhotoImage(img)
+    _ICON_CACHE[key] = icon
+    return icon
 
 
 class AppWindow(ctk.CTk):
@@ -96,7 +102,6 @@ class AppWindow(ctk.CTk):
         self.mode_var.set(self.config.get("mode", "Find Nearest"))
 
         self.current_pins = []
-        self._marker_icons = []
         self.current_polyline = None
         self._last_results = None
         self._last_is_tsp = False
@@ -480,7 +485,6 @@ class AppWindow(ctk.CTk):
 
     def clear_map(self):
         self.current_pins.clear()
-        self._marker_icons.clear()
         self.current_polyline = None
         self.map_widget.delete_all_marker()
         self.map_widget.delete_all_path()
@@ -787,9 +791,7 @@ class AppWindow(ctk.CTk):
     # ── Custom helpers & validation ───────────────────────────────────────────
 
     def get_marker_icon(self, text, bg_color="#3498db"):
-        icon = create_circle_marker_icon(text, bg_color)
-        self._marker_icons.append(icon)
-        return icon
+        return create_circle_marker_icon(text, bg_color)
 
     def _format_distance(self, meters):
         if meters is None or meters == float('inf') or isinstance(meters, str):
@@ -848,7 +850,8 @@ class AppWindow(ctk.CTk):
             api_key = None
 
         origin = self.origin_entry.get().strip()
-        destinations = self.dest_list.get_destinations()
+        # Snapshot entry refs + text on the main thread to avoid cross-thread widget access
+        entries_snapshot = [(entry, entry.get().strip()) for entry in self.dest_list.entries]
 
         self.btn_validate.configure(state="disabled", text="Validating...")
         self.btn_calculate.configure(state="disabled")
@@ -856,11 +859,11 @@ class AppWindow(ctk.CTk):
 
         threading.Thread(
             target=self.run_validation,
-            args=(provider, api_key, origin, destinations),
+            args=(provider, api_key, origin, entries_snapshot),
             daemon=True
         ).start()
 
-    def run_validation(self, provider, api_key, origin, destinations):
+    def run_validation(self, provider, api_key, origin, entries_snapshot):
         if provider == "Google Maps":
             engine = maps_engine
         elif provider == "OpenRouteService":
@@ -868,20 +871,27 @@ class AppWindow(ctk.CTk):
         else:
             engine = nominatim_engine
 
-        origin_ok = False
-        if origin:
-            coords = self._geocode_via_engine(engine, api_key, origin)
-            origin_ok = coords is not None
+        addrs_to_geocode = ([origin] if origin else []) + [addr for _, addr in entries_snapshot if addr]
 
-        dest_results = []
-        for entry in self.dest_list.entries:
-            addr = entry.get().strip()
-            if not addr:
-                dest_results.append((entry, None))
-            else:
-                coords = self._geocode_via_engine(engine, api_key, addr)
-                dest_results.append((entry, coords is not None))
+        coord_map: dict = {}
+        if addrs_to_geocode:
+            with ThreadPoolExecutor(max_workers=min(10, len(addrs_to_geocode))) as ex:
+                future_to_addr = {
+                    ex.submit(self._geocode_via_engine, engine, api_key, addr): addr
+                    for addr in addrs_to_geocode
+                }
+                for future in as_completed(future_to_addr):
+                    addr = future_to_addr[future]
+                    try:
+                        coord_map[addr] = future.result() is not None
+                    except Exception:
+                        coord_map[addr] = False
 
+        origin_ok = coord_map.get(origin, False) if origin else False
+        dest_results = [
+            (entry, None if not addr else coord_map.get(addr, False))
+            for entry, addr in entries_snapshot
+        ]
         self.after(0, self.finish_validation, origin_ok, dest_results)
 
     def _geocode_via_engine(self, engine, api_key, address):
