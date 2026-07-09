@@ -31,7 +31,7 @@ _ICON_CACHE: dict = {}
 
 from gui.components import DestinationList, ResultCard
 from utils import config_manager, data_importer, history_manager
-from api import maps_engine, openroute_engine, nominatim_engine
+from api import maps_engine, openroute_engine, nominatim_engine, osrm_engine
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MAP_CACHE = os.path.join(_ROOT, ".map_cache.db")
@@ -79,7 +79,7 @@ class AppWindow(ctk.CTk):
         super().__init__()
 
         self.config = config_manager.load_config()
-        ctk.set_appearance_mode(self.config.get("theme", "Dark"))
+        ctk.set_appearance_mode(self.config.get("theme", "Light"))
         ctk.set_default_color_theme("blue")
 
         self.title("Nearest Destination Finder")
@@ -98,7 +98,6 @@ class AppWindow(ctk.CTk):
         provider = _PROVIDER_LEGACY.get(raw, raw)
         self.provider_var.set(provider)
         self._on_provider_change(provider)
-
         self.mode_var.set(self.config.get("mode", "Find Nearest"))
 
         self.current_pins = []
@@ -137,7 +136,7 @@ class AppWindow(ctk.CTk):
         # Nominatim info note (shown only when Free (Nominatim) is selected)
         self._nominatim_note = ctk.CTkLabel(
             self.sidebar,
-            text="ℹ Straight-line distances only. No routing or travel times.",
+            text="ℹ Free Road Routing (OSRM + 2-Opt TSP active). Real street distances & durations without API key!",
             text_color=("gray40", "gray60"),
             wraplength=240,
             font=ctk.CTkFont(size=11),
@@ -194,14 +193,14 @@ class AppWindow(ctk.CTk):
         self.departure_entry.grid(row=14, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Theme
-        self.theme_var = ctk.StringVar(value=self.config.get("theme", "Dark"))
+        self.theme_var = ctk.StringVar(value=self.config.get("theme", "Light"))
         ctk.CTkLabel(self.sidebar, text="Theme:").grid(
             row=15, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkOptionMenu(
             self.sidebar,
-            values=["Dark", "Light", "System"],
+            values=["Light", "Dark", "System"],
             variable=self.theme_var,
-            command=lambda v: ctk.set_appearance_mode(v),
+            command=self._on_theme_change,
         ).grid(row=16, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Map style
@@ -353,9 +352,14 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(results_header, text="Results:",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
         self.btn_export_results = ctk.CTkButton(
-            results_header, text="Export CSV", width=100,
+            results_header, text="Export CSV", width=95,
             state="disabled", command=self.export_results_csv)
         self.btn_export_results.pack(side="right")
+        self.btn_open_maps = ctk.CTkButton(
+            results_header, text="📱 Open Route", width=105,
+            state="disabled", fg_color="#27ae60", hover_color="#2ecc71",
+            command=self.open_route_in_google_maps)
+        self.btn_open_maps.pack(side="right", padx=(0, 5))
 
         # Results area
         self.results_area = ctk.CTkScrollableFrame(self.tab_calculator, height=180)
@@ -477,17 +481,64 @@ class AppWindow(ctk.CTk):
         else:
             messagebox.showerror("Export Error", "Could not save the file.")
 
+    def open_route_in_google_maps(self):
+        if not self._last_results:
+            return
+        origin = self.origin_entry.get().strip()
+        results = self._last_results.get("results", [])
+        valid_dests = [r["destination"] for r in results if not r.get("error")]
+        if not valid_dests:
+            return
+        
+        import urllib.parse
+        import webbrowser
+
+        if not origin and self._last_results.get("origin_coords"):
+            c = self._last_results["origin_coords"]
+            origin = f"{c[0]},{c[1]}"
+        if not origin:
+            origin = valid_dests[0]
+            valid_dests = valid_dests[1:]
+
+        if not valid_dests:
+            return
+
+        destination = valid_dests[-1]
+        waypoints = valid_dests[:-1] if len(valid_dests) > 1 else []
+        
+        url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(destination)}"
+        if waypoints:
+            url += f"&waypoints={urllib.parse.quote('|'.join(waypoints))}"
+            
+        webbrowser.open(url)
+        
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(url)
+            messagebox.showinfo("Google Maps Route", f"Route opened in browser!\n\nLink copied to clipboard to send to smartphone or navigation:\n\n{url[:70]}...")
+        except Exception:
+            pass
+
     # ── Map helpers ───────────────────────────────────────────────────────────
 
     def clear_results(self):
         for widget in self.results_area.winfo_children():
             widget.destroy()
+        if hasattr(self, 'btn_export_results'):
+            self.btn_export_results.configure(state="disabled")
+        if hasattr(self, 'btn_open_maps'):
+            self.btn_open_maps.configure(state="disabled")
 
     def clear_map(self):
         self.current_pins.clear()
         self.current_polyline = None
         self.map_widget.delete_all_marker()
         self.map_widget.delete_all_path()
+
+    def _center_on_pin(self, coords):
+        if coords:
+            self.map_widget.set_position(coords[0], coords[1])
+            self.map_widget.set_zoom(15)
 
     def _fit_map_to_coords(self, coords: list) -> None:
         """Center and zoom the map to fit all given (lat, lon) coordinates."""
@@ -586,7 +637,7 @@ class AppWindow(ctk.CTk):
         elif provider == "OpenRouteService":
             engine = openroute_engine
         else:
-            engine = nominatim_engine
+            engine = osrm_engine
 
         if is_tsp:
             dest_addresses = [d["address"] for d in destinations]
@@ -607,7 +658,7 @@ class AppWindow(ctk.CTk):
                 elif provider == "OpenRouteService":
                     origin_coords = openroute_engine.geocode_address(api_key, origin)
                 else:
-                    origin_coords = nominatim_engine.geocode_address(origin)
+                    origin_coords = osrm_engine.geocode_address(origin)
                     
                 if not origin_coords:
                     res = {"status": "ERROR", "error_message": f"Could not geocode origin: {origin}"}
@@ -712,7 +763,9 @@ class AppWindow(ctk.CTk):
                 dist_text = self._format_distance(res.get("distance_value")) if not res.get("error") else ""
                 ResultCard(self.results_area, res["destination"],
                            dist_text, res["duration_text"],
-                           step=res.get("step")).pack(fill="x", pady=2, padx=2)
+                           step=res.get("step"),
+                           on_click_map=self._center_on_pin,
+                           coords=res.get("dest_coords")).pack(fill="x", pady=2, padx=2)
                 dest_coords = res.get("dest_coords")
                 if dest_coords:
                     all_coords.append(dest_coords)
@@ -740,7 +793,9 @@ class AppWindow(ctk.CTk):
                 else:
                     dist_text = self._format_distance(res.get("distance_value"))
                     ResultCard(self.results_area, res["destination"],
-                               dist_text, res["duration_text"]).pack(
+                               dist_text, res["duration_text"],
+                               on_click_map=self._center_on_pin,
+                               coords=res.get("dest_coords")).pack(
                         fill="x", pady=2, padx=2)
                     dest_coords = res.get("dest_coords")
                     if dest_coords:
@@ -759,6 +814,8 @@ class AppWindow(ctk.CTk):
 
         if valid_count > 0:
             self.btn_export_results.configure(state="normal")
+            if hasattr(self, 'btn_open_maps'):
+                self.btn_open_maps.configure(state="normal")
 
             if save_to_history:
                 try:
@@ -797,8 +854,6 @@ class AppWindow(ctk.CTk):
         if meters is None or meters == float('inf') or isinstance(meters, str):
             return "N/A"
         is_mi = self.unit_var.get() == "Imperial (mi)"
-        provider = self.provider_var.get()
-        is_straight = provider == "Free (Nominatim)"
         
         if is_mi:
             val = meters * 0.000621371
@@ -807,10 +862,12 @@ class AppWindow(ctk.CTk):
             val = meters / 1000.0
             suffix = " km"
             
-        if is_straight:
-            suffix += " (straight-line)"
-            
         return f"{val:.1f}{suffix}"
+
+    def _on_theme_change(self, v):
+        ctk.set_appearance_mode(v)
+        self.config["theme"] = v
+        config_manager.save_config(self.config)
 
     def _on_unit_change(self, value):
         if self._last_results:
@@ -869,7 +926,7 @@ class AppWindow(ctk.CTk):
         elif provider == "OpenRouteService":
             engine = openroute_engine
         else:
-            engine = nominatim_engine
+            engine = osrm_engine
 
         addrs_to_geocode = ([origin] if origin else []) + [addr for _, addr in entries_snapshot if addr]
 
@@ -895,7 +952,7 @@ class AppWindow(ctk.CTk):
         self.after(0, self.finish_validation, origin_ok, dest_results)
 
     def _geocode_via_engine(self, engine, api_key, address):
-        if engine == nominatim_engine:
+        if engine in (nominatim_engine, osrm_engine):
             return engine.geocode_address(address)
         else:
             return engine.geocode_address(api_key, address)

@@ -8,7 +8,7 @@ DEFAULT_CONFIG = {
     "google_api_key": "",
     "openrouteservice_api_key": "",
     "default_provider": "Google Maps",
-    "theme": "Dark",
+    "theme": "Light",
     "map_style": "Voyager",
     "transport_mode": "Driving",
     "mode": "Find Nearest",

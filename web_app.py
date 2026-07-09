@@ -18,7 +18,7 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from api import maps_engine, nominatim_engine, openroute_engine
+from api import maps_engine, nominatim_engine, openroute_engine, osrm_engine
 from utils import history_manager
 
 st.set_page_config(
@@ -55,13 +55,13 @@ def _engine(provider):
         return maps_engine
     if provider == "OpenRouteService":
         return openroute_engine
-    return nominatim_engine
+    return osrm_engine
 
 
 def _geocode(provider, api_key, address):
     """Unified geocode call across providers (different signatures)."""
     if provider == "Free (Nominatim)":
-        return nominatim_engine.geocode_address(address)
+        return osrm_engine.geocode_address(address)
     if provider == "Google Maps":
         return maps_engine.geocode_address(api_key, address)
     return openroute_engine.geocode_address(api_key, address)
@@ -209,8 +209,8 @@ with st.sidebar:
         "Provider",
         ["Free (Nominatim)", "Google Maps", "OpenRouteService"],
         help=(
-            "Free (Nominatim): no API key, straight-line haversine distances.\n"
-            "Google Maps / ORS: road-accurate distances and real travel times."
+            "Free (Nominatim): Free Road Routing (OSRM + 2-Opt TSP active). Real street distances & durations without API key!\n"
+            "Google Maps / ORS: road-accurate distances and real travel times with custom keys."
         ),
     )
     api_key = ""
@@ -293,10 +293,26 @@ with form_col:
         validated = st.session_state.validation.get(addr_val)
         badge = " ✅" if validated is True else " ❌" if validated is False else ""
         with st.expander(f"Destination {i + 1}{badge}", expanded=True):
-            st.text_input(
+            rc1, rc2, rc3 = st.columns([6, 1, 1])
+            rc1.text_input(
                 "Address", placeholder=f"Address {i + 1}",
                 key=f"dest_{i}", label_visibility="collapsed",
             )
+            if rc2.button("⬆️", key=f"up_{i}", help="Move up", disabled=(i == 0)):
+                st.session_state[f"dest_{i}"], st.session_state[f"dest_{i-1}"] = st.session_state.get(f"dest_{i-1}", ""), st.session_state.get(f"dest_{i}", "")
+                if f"mode_{i}" in st.session_state or f"mode_{i-1}" in st.session_state:
+                    st.session_state[f"mode_{i}"], st.session_state[f"mode_{i-1}"] = st.session_state.get(f"mode_{i-1}", "Default"), st.session_state.get(f"mode_{i}", "Default")
+                if f"dep_{i}" in st.session_state or f"dep_{i-1}" in st.session_state:
+                    st.session_state[f"dep_{i}"], st.session_state[f"dep_{i-1}"] = st.session_state.get(f"dep_{i-1}", "Default"), st.session_state.get(f"dep_{i}", "Default")
+                st.rerun()
+            if rc3.button("⬇️", key=f"down_{i}", help="Move down", disabled=(i == st.session_state.n_dests - 1)):
+                st.session_state[f"dest_{i}"], st.session_state[f"dest_{i+1}"] = st.session_state.get(f"dest_{i+1}", ""), st.session_state.get(f"dest_{i}", "")
+                if f"mode_{i}" in st.session_state or f"mode_{i+1}" in st.session_state:
+                    st.session_state[f"mode_{i}"], st.session_state[f"mode_{i+1}"] = st.session_state.get(f"mode_{i+1}", "Default"), st.session_state.get(f"mode_{i}", "Default")
+                if f"dep_{i}" in st.session_state or f"dep_{i+1}" in st.session_state:
+                    st.session_state[f"dep_{i}"], st.session_state[f"dep_{i+1}"] = st.session_state.get(f"dep_{i+1}", "Default"), st.session_state.get(f"dep_{i}", "Default")
+                st.rerun()
+
             if provider != "Free (Nominatim)":
                 oc1, oc2 = st.columns(2)
                 oc1.selectbox(
@@ -483,28 +499,55 @@ with result_col:
             except Exception:
                 pass
 
-        # TSP summary banner
-        if is_tsp and resp.get("total_distance"):
-            td = _convert_total(resp["total_distance"], is_mi)
-            st.success(f"**Total: {td}** &nbsp;&nbsp; ⏱️ {resp.get('total_duration', 'N/A')}")
-
-        # Metadata row
-        n_ok = sum(1 for r in results_list if not r.get("error"))
-        n_err = len(results_list) - n_ok
-        meta_parts = [f"{n_ok} destination{'s' if n_ok != 1 else ''} found"]
-        if n_err:
-            meta_parts.append(f"{n_err} failed")
-        st.caption(" · ".join(meta_parts))
-
-        # Export button
+        # Dashboard metrics
         if results_list:
-            csv_bytes = _export_csv(results_list, is_tsp, resp, is_mi).encode("utf-8")
-            st.download_button(
-                "⬇️ Export results as CSV",
-                data=csv_bytes,
-                file_name="route_results.csv",
-                mime="text/csv",
-            )
+            n_ok = sum(1 for r in results_list if not r.get("error"))
+            n_err = len(results_list) - n_ok
+            tot_dist_val = sum(r.get("distance_value", 0) for r in results_list if not r.get("error") and r.get("distance_value") not in (None, float("inf")))
+            tot_dist_str = _convert_total(resp.get("total_distance", _mi(tot_dist_val) if is_mi else f"{tot_dist_val/1000:.1f} km"), is_mi)
+            tot_dur_str = resp.get("total_duration", "N/A")
+            
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Trip Stops", f"{n_ok}")
+            mc2.metric("Total Distance", tot_dist_str)
+            mc3.metric("Total Time", tot_dur_str)
+            mc4.metric("Mode", "TSP 2-Opt" if is_tsp else "Nearest")
+
+            # Metadata row
+            meta_parts = [f"{n_ok} destination{'s' if n_ok != 1 else ''} found"]
+            if n_err:
+                meta_parts.append(f"{n_err} failed")
+            st.caption(" · ".join(meta_parts))
+
+            # Export & Phone Navigation buttons
+            import urllib.parse
+            valid_dests = [r["destination"] for r in results_list if not r.get("error")]
+            orig_str = resp.get("origin", "")
+            if not orig_str and resp.get("origin_coords"):
+                c = resp["origin_coords"]
+                orig_str = f"{c[0]},{c[1]}"
+            if not orig_str and valid_dests:
+                orig_str = valid_dests[0]
+                valid_dests = valid_dests[1:]
+                
+            bcol1, bcol2 = st.columns([1, 1])
+            with bcol1:
+                csv_bytes = _export_csv(results_list, is_tsp, resp, is_mi).encode("utf-8")
+                st.download_button(
+                    "⬇️ Export CSV",
+                    data=csv_bytes,
+                    file_name="route_results.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with bcol2:
+                if valid_dests:
+                    destination = valid_dests[-1]
+                    waypoints = valid_dests[:-1] if len(valid_dests) > 1 else []
+                    url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(orig_str)}&destination={urllib.parse.quote(destination)}"
+                    if waypoints:
+                        url += f"&waypoints={urllib.parse.quote('|'.join(waypoints))}"
+                    st.link_button("📱 Open Route on Phone / Google Maps", url, use_container_width=True)
 
         st.subheader("📊 Results")
         for i, r in enumerate(results_list):

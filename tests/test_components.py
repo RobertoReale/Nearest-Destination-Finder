@@ -43,3 +43,28 @@ def test_destination_list_overrides():
     
     # Destroy tkinter context
     app.destroy()
+
+
+def test_destination_list_reorder():
+    app = ctk.CTk()
+    dest_list = DestinationList(app)
+    dest_list.entries[0].insert(0, "Florence")
+    dest_list.add_entry("Rome")
+    dest_list.add_entry("Milan")
+    
+    # [Florence, Rome, Milan]
+    assert dest_list.entries[0].get() == "Florence"
+    assert dest_list.entries[1].get() == "Rome"
+    
+    # Move Florence down -> [Rome, Florence, Milan]
+    dest_list.move_down(dest_list.entries[0])
+    assert dest_list.entries[0].get() == "Rome"
+    assert dest_list.entries[1].get() == "Florence"
+    
+    # Move Florence up -> [Florence, Rome, Milan]
+    dest_list.move_up(dest_list.entries[1])
+    assert dest_list.entries[0].get() == "Florence"
+    assert dest_list.entries[1].get() == "Rome"
+    
+    app.destroy()
+

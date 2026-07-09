@@ -15,17 +15,25 @@ class DestinationList(ctk.CTkScrollableFrame):
         row_frame.pack(fill="x", pady=2)
 
         entry = ctk.CTkEntry(row_frame, placeholder_text="Enter destination...")
-        entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
         if default_text:
             entry.insert(0, default_text)
 
         if self.on_enter_pressed:
             entry.bind("<Return>", lambda event, cb=self.on_enter_pressed: cb())
 
+        # Up button
+        ctk.CTkButton(row_frame, text="▲", width=26, fg_color="gray50", hover_color="gray60",
+                      command=lambda e=entry: self.move_up(e)).pack(side="left", padx=(0, 2))
+
+        # Down button
+        ctk.CTkButton(row_frame, text="▼", width=26, fg_color="gray50", hover_color="gray60",
+                      command=lambda e=entry: self.move_down(e)).pack(side="left", padx=(0, 4))
+
         # Settings gear button
         settings_btn = ctk.CTkButton(row_frame, text="⚙", width=30, fg_color="gray60", hover_color="gray70",
                                      command=lambda e=entry: self.open_settings(e))
-        settings_btn.pack(side="left", padx=(0, 5))
+        settings_btn.pack(side="left", padx=(0, 4))
         
         # Color indicator if loaded with overrides
         if transport_mode != "Default" or departure_time != "Default":
@@ -42,6 +50,45 @@ class DestinationList(ctk.CTkScrollableFrame):
             "departure_time": departure_time
         }
         self.settings_btns[entry] = settings_btn
+
+    def move_up(self, entry):
+        if entry not in self.entries:
+            return
+        idx = self.entries.index(entry)
+        if idx > 0:
+            self._swap_entries(idx, idx - 1)
+
+    def move_down(self, entry):
+        if entry not in self.entries:
+            return
+        idx = self.entries.index(entry)
+        if idx < len(self.entries) - 1:
+            self._swap_entries(idx, idx + 1)
+
+    def _swap_entries(self, idx1, idx2):
+        e1, e2 = self.entries[idx1], self.entries[idx2]
+        t1, t2 = e1.get(), e2.get()
+        e1.delete(0, "end")
+        e1.insert(0, t2)
+        e2.delete(0, "end")
+        e2.insert(0, t1)
+
+        ov1, ov2 = self.overrides.get(e1, {}), self.overrides.get(e2, {})
+        self.overrides[e1], self.overrides[e2] = ov2, ov1
+
+        self._update_settings_btn(e1)
+        self._update_settings_btn(e2)
+
+    def _update_settings_btn(self, entry):
+        btn = self.settings_btns.get(entry)
+        if not btn:
+            return
+        ov = self.overrides.get(entry, {"transport_mode": "Default", "departure_time": "Default"})
+        is_custom = (ov.get("transport_mode", "Default") != "Default" or ov.get("departure_time", "Default") != "Default")
+        if is_custom:
+            btn.configure(fg_color="#3498db", text="⚙ (Custom)")
+        else:
+            btn.configure(fg_color="gray60", text="⚙")
 
     def remove_entry(self, frame, entry):
         if len(self.entries) > 1:
@@ -143,16 +190,35 @@ class DestinationList(ctk.CTkScrollableFrame):
 
 class ResultCard(ctk.CTkFrame):
     def __init__(self, master, destination, distance, duration,
-                 step=None, is_error=False, error_text="Calculation error", **kwargs):
+                 step=None, is_error=False, error_text="Calculation error",
+                 on_click_map=None, coords=None, **kwargs):
         kwargs.setdefault("border_width", 1)
-        kwargs.setdefault("border_color", ("gray70", "gray30"))
+        kwargs.setdefault("border_color", ("gray75", "gray25"))
+        kwargs.setdefault("corner_radius", 6)
         super().__init__(master, **kwargs)
 
-        header_text = f"Stop {step}: {destination}" if step is not None else destination
-        ctk.CTkLabel(self, text=header_text,
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", padx=10, pady=(8, 2))
+
+        if step is not None:
+            badge = ctk.CTkLabel(
+                header_frame, text=f" #{step} ", fg_color="#3498db", text_color="white",
+                font=ctk.CTkFont(size=12, weight="bold"), corner_radius=4
+            )
+            badge.pack(side="left", padx=(0, 6))
+
+        ctk.CTkLabel(header_frame, text=destination,
                      font=ctk.CTkFont(size=13, weight="bold"),
-                     anchor="w", justify="left", wraplength=400).pack(
-            fill="x", padx=10, pady=(8, 2))
+                     anchor="w", justify="left", wraplength=280).pack(
+            side="left", fill="x", expand=True)
+
+        if not is_error and on_click_map and coords:
+            ctk.CTkButton(
+                header_frame, text="📍", width=30, height=24,
+                fg_color="transparent", hover_color=("gray85", "gray30"),
+                text_color=("#2980b9", "#5dade2"), font=ctk.CTkFont(size=14),
+                command=lambda: on_click_map(coords)
+            ).pack(side="right")
 
         if is_error:
             ctk.CTkLabel(self, text=error_text,
@@ -160,8 +226,8 @@ class ResultCard(ctk.CTkFrame):
                 fill="x", padx=10, pady=(0, 8))
         else:
             info = ctk.CTkFrame(self, fg_color="transparent")
-            info.pack(fill="x", padx=10, pady=(0, 8))
-            ctk.CTkLabel(info, text=f"Distance: {distance}",
-                         text_color=("gray30", "gray70")).pack(side="left")
-            ctk.CTkLabel(info, text=f"Time: {duration}",
-                         text_color=("gray30", "gray70")).pack(side="right")
+            info.pack(fill="x", padx=10, pady=(2, 8))
+            ctk.CTkLabel(info, text=f"📏 {distance}",
+                         text_color=("gray30", "gray70"), font=ctk.CTkFont(size=12)).pack(side="left")
+            ctk.CTkLabel(info, text=f"⏱️ {duration}",
+                         text_color=("gray30", "gray70"), font=ctk.CTkFont(size=12)).pack(side="right")

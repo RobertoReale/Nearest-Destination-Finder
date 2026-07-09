@@ -138,6 +138,31 @@ def get_optimized_route(api_key, origin: str, destinations: list, transport_mode
         visited[best] = True
         row = dist_matrix[best]
 
+    # Apply 2-Opt local search optimization
+    if n > 2:
+        full_coords = [origin_coords] + valid_coords
+        full_order = [0] + [idx + 1 for idx in order]
+        improved = True
+        iterations = 0
+        while improved and iterations < 150:
+            improved = False
+            iterations += 1
+            for i in range(1, len(full_order) - 1):
+                for j in range(i + 1, len(full_order)):
+                    if j - i == 1:
+                        continue
+                    a, b = full_order[i - 1], full_order[i]
+                    c, d = full_order[j - 1], full_order[j]
+                    old_d = _haversine_km(*full_coords[a], *full_coords[b]) + _haversine_km(*full_coords[c], *full_coords[d])
+                    new_d = _haversine_km(*full_coords[a], *full_coords[c]) + _haversine_km(*full_coords[b], *full_coords[d])
+                    if new_d + 1e-6 < old_d:
+                        full_order[i:j] = full_order[i:j][::-1]
+                        improved = True
+                        break
+                if improved:
+                    break
+        order = [idx - 1 for idx in full_order[1:]]
+
     results = []
     total_dist = 0.0
     prev = origin_coords
