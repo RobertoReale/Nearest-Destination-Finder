@@ -29,7 +29,7 @@ def _load_marker_font():
 _FONT = _load_marker_font()
 _ICON_CACHE: dict = {}
 
-from gui.components import DestinationList, ResultCard
+from gui.components import DestinationList, ResultCard, AutocompleteEntry
 from utils import config_manager, data_importer, history_manager
 from api import maps_engine, openroute_engine, nominatim_engine, osrm_engine
 
@@ -303,8 +303,8 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(self.tab_calculator, text="Origin:",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=10, pady=(10, 0), sticky="w")
-        self.origin_entry = ctk.CTkEntry(self.tab_calculator,
-                                         placeholder_text="e.g. Rome, Piazza Venezia")
+        self.origin_entry = AutocompleteEntry(self.tab_calculator,
+                                              placeholder_text="e.g. Rome, Piazza Venezia")
         self.origin_entry.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="ew")
 
         # Destinations header: label + Add + Clear All

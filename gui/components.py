@@ -1,4 +1,104 @@
+import threading
 import customtkinter as ctk
+from api import autocomplete_engine
+
+
+class AutocompleteEntry(ctk.CTkEntry):
+    def __init__(self, master, on_select=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.on_select_callback = on_select
+        self.selected_coords = None  # (lat, lon) if selected from dropdown
+        self.popup = None
+        self._popup_frame = None
+        self._last_query = ""
+        
+        self.bind("<KeyRelease>", self._on_key_release)
+        self.bind("<FocusOut>", self._on_focus_out)
+
+    def _on_key_release(self, event):
+        # Ignore navigation keys and Return
+        if event.keysym in ("Up", "Down", "Left", "Right", "Return", "Escape", "Tab"):
+            if event.keysym == "Escape":
+                self._hide_popup()
+            return
+            
+        query = self.get().strip()
+        if len(query) < 3:
+            self._hide_popup()
+            return
+            
+        if query == self._last_query:
+            return
+            
+        self._last_query = query
+        threading.Thread(target=self._fetch_suggestions, args=(query,), daemon=True).start()
+
+    def _fetch_suggestions(self, query):
+        suggestions = autocomplete_engine.get_suggestions(query, limit=5)
+        # Schedule GUI update on main thread
+        try:
+            self.after(0, lambda: self._show_popup(suggestions, query))
+        except Exception:
+            pass
+
+    def _show_popup(self, suggestions, query):
+        if not suggestions or self.get().strip() != query:
+            self._hide_popup()
+            return
+
+        top = self.winfo_toplevel()
+        if not self.popup or not self.popup.winfo_exists():
+            self.popup = ctk.CTkToplevel(top)
+            self.popup.overrideredirect(True)
+            self.popup.attributes("-topmost", True)
+            self._popup_frame = ctk.CTkFrame(self.popup, corner_radius=6, border_width=1, border_color="#3B82F6")
+            self._popup_frame.pack(fill="both", expand=True)
+        else:
+            for child in self._popup_frame.winfo_children():
+                child.destroy()
+
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + 2
+        width = max(self.winfo_width(), 320)
+        self.popup.geometry(f"{width}x{min(len(suggestions) * 36 + 8, 200)}+{x}+{y}")
+
+        for s in suggestions:
+            btn = ctk.CTkButton(
+                self._popup_frame,
+                text=f"📍 {s['display_text']}",
+                anchor="w",
+                height=32,
+                fg_color="transparent",
+                hover_color="#3B82F6",
+                text_color=("gray10", "gray90"),
+                command=lambda item=s: self._select_item(item),
+            )
+            btn.pack(fill="x", padx=4, pady=1)
+
+        self.popup.deiconify()
+
+    def _select_item(self, item):
+        self.delete(0, "end")
+        self.insert(0, item["display_text"])
+        self.selected_coords = (item.get("lat"), item.get("lon"))
+        self._hide_popup()
+        if self.on_select_callback:
+            self.on_select_callback(item)
+
+    def _on_focus_out(self, event):
+        try:
+            self.after(250, self._hide_popup)
+        except Exception:
+            pass
+
+    def _hide_popup(self):
+        if self.popup and self.popup.winfo_exists():
+            try:
+                self.popup.destroy()
+            except Exception:
+                pass
+        self.popup = None
+        self._popup_frame = None
 
 
 class DestinationList(ctk.CTkScrollableFrame):
@@ -14,7 +114,7 @@ class DestinationList(ctk.CTkScrollableFrame):
         row_frame = ctk.CTkFrame(self, fg_color="transparent")
         row_frame.pack(fill="x", pady=2)
 
-        entry = ctk.CTkEntry(row_frame, placeholder_text="Enter destination...")
+        entry = AutocompleteEntry(row_frame, placeholder_text="Enter destination...")
         entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
         if default_text:
             entry.insert(0, default_text)

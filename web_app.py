@@ -18,7 +18,7 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from api import maps_engine, nominatim_engine, openroute_engine, osrm_engine
+from api import maps_engine, nominatim_engine, openroute_engine, osrm_engine, autocomplete_engine
 from utils import history_manager
 
 st.set_page_config(
@@ -378,7 +378,15 @@ if validate_clicked:
                 st.success(f"All {n_ok} addresses found ✅")
             else:
                 for addr, ok in validated.items():
-                    st.write(("✅ " if ok else "❌ ") + addr)
+                    if ok:
+                        st.write(f"✅ {addr}")
+                    else:
+                        st.write(f"❌ **{addr}** (not found)")
+                        sugs = autocomplete_engine.get_suggestions(addr, limit=3)
+                        if sugs:
+                            st.caption("💡 Did you mean one of these autocomplete suggestions?")
+                            for s in sugs:
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📍 `{s['display_text']}`")
 
 # ── Calculation ───────────────────────────────────────────────────────────────
 if calculate:
