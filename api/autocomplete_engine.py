@@ -48,17 +48,28 @@ def get_suggestions(query: str, limit: int = 5) -> list[dict[str, Any]]:
         time.sleep(_MIN_REQ_INTERVAL - elapsed)
     _LAST_REQ_TIME = time.time()
 
-    suggestions = _fetch_photon(clean_q, limit)
+    suggestions = _fetch_photon(clean_q, limit * 4)
     if not suggestions:
-        suggestions = _fetch_nominatim(clean_q, limit)
+        suggestions = _fetch_nominatim(clean_q, limit * 4)
 
-    if suggestions:
+    # Deduplicate by display_text while preserving order
+    unique_suggestions = []
+    seen = set()
+    for s in suggestions:
+        dt_key = s["display_text"].lower().strip()
+        if dt_key not in seen:
+            seen.add(dt_key)
+            unique_suggestions.append(s)
+            if len(unique_suggestions) >= limit:
+                break
+
+    if unique_suggestions:
         # Cache the results (limit cache size to 500 entries)
         if len(_CACHE) > 500:
             _CACHE.clear()
-        _CACHE[clean_q] = suggestions
+        _CACHE[clean_q] = unique_suggestions
 
-    return suggestions
+    return unique_suggestions
 
 
 def _fetch_photon(query: str, limit: int) -> list[dict[str, Any]]:
@@ -86,11 +97,13 @@ def _fetch_photon(query: str, limit: int) -> list[dict[str, Any]]:
             name = props.get("name", "")
             street = props.get("street", "")
             housenumber = props.get("housenumber", "")
+            district = props.get("district") or props.get("suburb") or props.get("neighbourhood") or props.get("quarter", "")
+            postcode = props.get("postcode", "")
             city = props.get("city") or props.get("town") or props.get("village") or props.get("county", "")
             state = props.get("state", "")
             country = props.get("country", "")
 
-            # Build readable display text
+            # Build readable display text with rich detail
             parts = []
             if name and name != street:
                 parts.append(name)
@@ -98,9 +111,13 @@ def _fetch_photon(query: str, limit: int) -> list[dict[str, Any]]:
                 addr_line = f"{street} {housenumber}".strip() if housenumber else street
                 if addr_line not in parts:
                     parts.append(addr_line)
+            if district and district not in parts and district != city:
+                parts.append(district)
             if city and city not in parts:
                 parts.append(city)
-            if state and state not in parts:
+            if postcode and postcode not in parts:
+                parts.append(postcode)
+            if state and state not in parts and state != city:
                 parts.append(state)
             if country and country not in parts:
                 parts.append(country)
@@ -158,7 +175,7 @@ def _fetch_nominatim(query: str, limit: int) -> list[dict[str, Any]]:
 
             # Format a slightly cleaner display name from Nominatim parts
             parts = [p.strip() for p in display_name.split(",") if p.strip()]
-            display_text = ", ".join(parts[:4]) if len(parts) > 4 else display_name
+            display_text = ", ".join(parts[:5]) if len(parts) > 5 else display_name
 
             results.append({
                 "display_text": display_text,

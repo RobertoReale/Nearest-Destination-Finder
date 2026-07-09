@@ -62,3 +62,34 @@ def test_get_suggestions_fallback_nominatim(mock_get):
     assert len(results) == 1
     assert "Colosseo" in results[0]["display_text"]
     assert results[0]["lat"] == 41.8902
+
+
+@patch("api.autocomplete_engine.requests.get")
+def test_get_suggestions_deduplication(mock_get):
+    autocomplete_engine.clear_cache()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    # Simulate Photon returning multiple identical or similar segments along Via Toledo
+    mock_resp.json.return_value = {
+        "features": [
+            {
+                "properties": {"street": "Via Toledo", "city": "Napoli", "state": "Campania", "country": "Italia"},
+                "geometry": {"coordinates": [14.24, 40.84]},
+            },
+            {
+                "properties": {"street": "Via Toledo", "city": "Napoli", "state": "Campania", "country": "Italia"},
+                "geometry": {"coordinates": [14.241, 40.841]},
+            },
+            {
+                "properties": {"street": "Via Toledo", "district": "Quartieri Spagnoli", "city": "Napoli", "postcode": "80134", "country": "Italia"},
+                "geometry": {"coordinates": [14.242, 40.842]},
+            },
+        ]
+    }
+    mock_get.return_value = mock_resp
+
+    results = autocomplete_engine.get_suggestions("via toledo napoli")
+    # The two exact duplicates should be merged to 1, leaving exactly 2 unique suggestions
+    assert len(results) == 2
+    assert results[0]["display_text"] == "Via Toledo, Napoli, Campania, Italia"
+    assert "Quartieri Spagnoli" in results[1]["display_text"]
